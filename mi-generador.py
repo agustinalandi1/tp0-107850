@@ -3,6 +3,7 @@ import sys
 
 def generar_docker_compose(archivo_salida, cantidad_clientes):
     data = {
+        'name': 'tp0',
         'services': {
             'server': {
                 'container_name': 'server',
@@ -42,7 +43,7 @@ def generar_docker_compose(archivo_salida, cantidad_clientes):
         }
 
     with open(archivo_salida, 'w') as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False, indent=2)
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
