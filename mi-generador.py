@@ -14,7 +14,7 @@ services:
     networks:
       - testing_net
     volumes:
-        - ./server/config.ini:/config.ini
+      - ./server/config.ini:/config.ini
 """
 
     # Clientes
@@ -29,7 +29,7 @@ services:
     networks:
       - testing_net
     volumes:
-        - ./client/config.yaml:/config.yaml
+      - ./client/config.yaml:/config.yaml
     depends_on:
       - server
 """
@@ -49,9 +49,9 @@ services:
     print(f"Docker Compose file '{archivo_salida}' generado con {cantidad_clientes} cliente(s).")
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print('Uso: python3 mi-generador.py <archivo_salida> <cantidad_clientes>')
-        sys.exit(1)
+    #if len(sys.argv) != 3:
+    #    print('Uso: python3 mi-generador.py <archivo_salida> <cantidad_clientes>')
+    #    sys.exit(1)
 
     archivo = sys.argv[1]
     
