@@ -15,7 +15,7 @@ services:
       - testing_net
 """
 
-    # Agregar configuración de clientes
+    # Clientes
     for i in range(1, cantidad_clientes + 1):
         compose += f"""  client{i}:
     container_name: client{i}
@@ -30,7 +30,7 @@ services:
       - server
 """
 
-    # Configuración de red
+    # Red
     compose += """networks:
   testing_net:
     ipam:
@@ -45,9 +45,9 @@ services:
     print(f"Docker Compose file '{archivo_salida}' generado con {cantidad_clientes} cliente(s).")
 
 if __name__ == '__main__':
-    #if len(sys.argv) != 2:
-    #    print('Uso: python3 mi-generador.py <archivo_salida> <cantidad_clientes>')
-    #    sys.exit(1)
+    if len(sys.argv) != 3:
+        print('Uso: python3 mi-generador.py <archivo_salida> <cantidad_clientes>')
+        sys.exit(1)
 
     archivo = sys.argv[1]
     
