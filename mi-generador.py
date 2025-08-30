@@ -2,53 +2,47 @@ import yaml
 import sys
 
 def generar_docker_compose(archivo_salida, cantidad_clientes):
-    data = {
-        'services': {
-            'server': {
-                'container_name': 'server',
-                'image': 'server:latest',
-                'entrypoint': 'python3 /main.py',
-                'environment': [
-                    'PYTHONUNBUFFERED=1',
-                    'LOGGING_LEVEL=DEBUG'
-                ],
-                'networks': ['testing_net'],
-                'volumes': [
-                    './server/config.ini:/server/config.ini'
-                ]
-            }
-        },
-        'networks': {
-            'testing_net': {
-                'ipam': {
-                    'driver': 'default',
-                    'config': [
-                        {'subnet': '172.25.125.0/24'}
-                    ]
-                }
-            }
-        }
-    }
+    compose = """name: tp0
+services:
+  server:
+    container_name: server
+    image: server:latest
+    entrypoint: python3 /main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOGGING_LEVEL=DEBUG
+    networks:
+      - testing_net
+"""
 
+    # Clientes
     for i in range(1, cantidad_clientes + 1):
-        nombre = f'client{i}'
-        data['services'][nombre] = {
-            'container_name': nombre,
-            'image': 'client:latest',
-            'entrypoint': '/client',
-            'environment': [
-                f'CLI_ID={i}',
-                'CLI_LOG_LEVEL=DEBUG'
-            ],
-            'networks': ['testing_net'],
-            'depends_on': ['server'],
-            'volumes': [
-                './client/config.yaml:/config.yaml'
-            ]
-        }
+        compose += f"""  client{i}:
+    container_name: client{i}
+    image: client:latest
+    entrypoint: /client
+    environment:
+      - CLI_ID={i}
+      - CLI_LOG_LEVEL=DEBUG
+    networks:
+      - testing_net
+    depends_on:
+      - server
+"""
+
+    # Red
+    compose += """networks:
+  testing_net:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.125.0/24
+"""
 
     with open(archivo_salida, 'w') as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        f.write(compose)
+
+    print(f"Docker Compose file '{archivo_salida}' generado con {cantidad_clientes} cliente(s).")
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
