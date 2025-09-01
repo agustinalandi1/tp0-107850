@@ -83,6 +83,11 @@ func (c *Client) StartClientLoop() {
 		// Create the connection the server in every loop iteration. Send an
 		c.createClientSocket()
 
+		if c.conn == nil {
+			log.Errorf("action: connect | result: fail | client_id: %v", c.config.ID)
+			return
+		}
+
 		// Modify the send to avoid short-write
 		msg := fmt.Sprintf("[CLIENT %v] Message N°%v\n", c.config.ID, msgID)
 		_, err := c.conn.Write([]byte(msg))
@@ -94,7 +99,8 @@ func (c *Client) StartClientLoop() {
 			return
 		}
 
-		msg, err = bufio.NewReader(c.conn).ReadString('\n')
+		msgReader := bufio.NewReader(c.conn)
+		msg, err = msgReader.ReadString('\n')
 		c.conn.Close()
 
 		if err != nil {
