@@ -1,4 +1,3 @@
-import yaml
 import sys
 
 def generar_docker_compose(archivo_salida, cantidad_clientes):
