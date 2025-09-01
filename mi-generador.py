@@ -53,12 +53,12 @@ if __name__ == '__main__':
     archivo = sys.argv[1]
     
     try:
-        cantidad = int(sys.argv[2])
-        if cantidad < 1:
-            raise ValueError
+      cantidad = int(sys.argv[2])
+      if cantidad < 0:
+          raise ValueError
     except ValueError:
-        print("Error: la cantidad de clientes debe ser un número entero positivo.")
-        sys.exit(1)
+      print("Error: la cantidad de clientes debe ser un número entero no negativo.")
+      sys.exit(1)
 
     generar_docker_compose(archivo, cantidad)
     print(f"Archivo '{archivo}' generado con {cantidad} cliente(s).")
