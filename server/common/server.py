@@ -9,6 +9,14 @@ class Server:
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
 
+        def handle_sigterm(signum, frame):
+            logging.info("action: handle_sigterm | result: success")
+            self._server_socket.close()
+            logging.info("action: close_server_socket | result: success")
+            exit(0)
+        
+        signal.signal(signal.SIGTERM, handle_sigterm)
+
     def run(self):
         """
         Dummy Server loop
@@ -33,11 +41,20 @@ class Server:
         """
         try:
             # TODO: Modify the receive to avoid short-reads
-            msg = client_sock.recv(1024).rstrip().decode('utf-8')
+            data = b""
+            while not data.endswith(b"\n"):
+                chunk = client_sock.recv(1024)
+                if not chunk:
+                    break
+                data += chunk
+            msg = data.rstrip().decode('utf-8')
+
             addr = client_sock.getpeername()
             logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
+
             # TODO: Modify the send to avoid short-writes
-            client_sock.send("{}\n".format(msg).encode('utf-8'))
+            client_sock.sendall((msg + "\n").encode('utf-8'))
+
         except OSError as e:
             logging.error("action: receive_message | result: fail | error: {e}")
         finally:
