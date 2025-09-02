@@ -1,7 +1,9 @@
 import socket
 import logging
 import signal
-from common import utils
+from common.communication import read_n, write_all
+from common.bet import deserialize_bet
+from common.utils import Bet, store_bets
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -64,9 +66,7 @@ class Server:
         """
         self._client_sockets.append(client_sock)
         try:
-            msg = self._receive_message(client_sock)
-            if msg is not None:
-                self._send_message(client_sock, msg)
+            self._receive_message(client_sock)
         finally:
             try:
                 client_sock.close()
@@ -85,19 +85,17 @@ class Server:
                 data += chunk
             if not data:
                 return None
-            msg = data.rstrip().decode('utf-8')
-            addr = client_sock.getpeername()
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
-            return msg
-        except OSError as e:
-            logging.error(f"action: receive_message | result: fail | error: {e}")
-            return None
 
-    def _send_message(self, client_sock, msg):
-        try:
-            client_sock.sendall((msg + "\n").encode('utf-8'))
-        except OSError as e:
-            logging.error(f"action: send_message | result: fail | error: {e}")
+            logging.debug(f"DEBUG SERVER raw_data: {repr(data)}")
+            logging.debug(f"DEBUG SERVER decoded_data: {data.decode()}")
+            nombre, apellido, dni, nacimiento, numero, agencia = deserialize_bet(data.decode())
+            bet = Bet(agencia, nombre, apellido, dni, nacimiento, numero)
+            store_bets([bet])
+            logging.info(f"action: apuesta_almacenada | result: success | dni: {dni} | numero: {numero}")
+            write_all(client_sock, b"OK")
+
+        except Exception as e:
+           logging.error(f"action: process_bet | result: fail | error: {e}")
 
     def __accept_new_connection(self):
         """

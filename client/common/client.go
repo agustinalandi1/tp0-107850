@@ -1,8 +1,6 @@
 package common
 
 import (
-	"bufio"
-	"fmt"
 	"net"
 	"time"
 	"os"
@@ -10,6 +8,8 @@ import (
 	"syscall"
 
 	"github.com/op/go-logging"
+	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/common/bet"
+	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/common/communication"
 )
 
 var log = logging.MustGetLogger("log")
@@ -62,6 +62,7 @@ func (c *Client) createClientSocket() error {
 			c.config.ID,
 			err,
 		)
+		return err
 	}
 	c.conn = conn
 	return nil
@@ -76,6 +77,41 @@ func (c *Client) closeClientSocket() {
 	}
 }
 
+// sendBetWithRetry intenta enviar una apuesta con reintentos
+func (client *Client) sendBetWithRetry(message, dni, numero string) bool {
+	const MAX_RETRIES = 3
+
+	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
+		err := client.createClientSocket()
+		if err != nil {
+			log.Errorf("action: connect_attempt | result: fail | attempt: %d | error: %v", attempt, err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		err = communication.SendMessage(client.conn, message)
+		if err != nil {
+			log.Errorf("action: send_message | result: fail | attempt: %d | error: %v", attempt, err)
+			client.closeClientSocket()
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		err = communication.ReceiveAck(client.conn)
+		client.closeClientSocket()
+
+		if err != nil {
+			log.Errorf("action: receive_ack | result: fail | attempt: %d | error: %v", attempt, err)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		return true
+	}
+
+	return false
+}
+
 // StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
 
@@ -88,40 +124,20 @@ func (c *Client) StartClientLoop() {
 			break
 		}
 
-		// Create the connection the server in every loop iteration. Send an
-		err := c.createClientSocket()
-		if err != nil {
-			time.Sleep(1 * time.Second)
-			continue
-		}
-
-		msg := fmt.Sprintf("[CLIENT %v] Message N°%v\n", c.config.ID, msgID)
-		_, err = c.conn.Write([]byte(msg))
-		if err != nil {
-			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			c.closeClientSocket()
-			continue
-		}
-
-		// Leer la respuesta
-		msgReader := bufio.NewReader(c.conn)
-		reponse, err := msgReader.ReadString('\n')
-		c.closeClientSocket()
-
-		if err != nil {
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
+		message, dni, numero := bet.BuildBetMessage(c.config.ID)
+		success := c.sendBetWithRetry(message, dni, numero)
+		if success {
+			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
+				dni,
+				numero,
 			)
-			continue
+		} else {
+			log.Errorf("action: apuesta_enviada | result: fail | dni: %v | numero: %v",
+				dni,
+				numero,
+			)
 		}
 
-		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
-			c.config.ID,
-			reponse,
-		)
-
-		// Wait a time between sending one message and the next one
 		time.Sleep(c.config.LoopPeriod)
 
 	}
