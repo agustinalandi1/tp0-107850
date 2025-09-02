@@ -9,14 +9,34 @@ class Server:
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
+        self._shutdown = False
+        self._client_sockets = []
 
-        def handle_sigterm(signum, frame):
-            logging.info("action: handle_sigterm | result: success")
+        signal.signal(signal.SIGTERM, self._handle_sigterm)
+
+    def _handle_sigterm(self, signum, frame):
+        logging.info("action: handle_sigterm | result: success")
+        self._shutdown_server()
+
+    def _shutdown_server(self):
+        if self._shutdown:
+            return
+        self._shutdown = True
+
+        logging.info("action: shutdown | result: in_progress")
+
+        try:
             self._server_socket.close()
             logging.info("action: close_server_socket | result: success")
-            exit(0)
-        
-        signal.signal(signal.SIGTERM, handle_sigterm)
+        except Exception as e:
+            logging.error(f"action: close_server_socket | result: fail | error: {e}")
+
+        for sock in self._client_sockets:
+            try:
+                sock.close()
+                logging.info("action: close_client_socket | result: success")
+            except Exception as e:
+                logging.error(f"action: close_client_socket | result: fail | error: {e}")
 
     def run(self):
         """
@@ -26,12 +46,14 @@ class Server:
         communication with a client. After client with communucation
         finishes, servers starts to accept new connections again
         """
-
-        # TODO: Modify this program to handle signal to graceful shutdown
-        # the server
-        while True:
-            client_sock = self.__accept_new_connection()
-            self.__handle_client_connection(client_sock)
+        while not self._shutdown:
+            try:
+                client_sock = self.__accept_new_connection()
+                if client_sock:
+                    self.__handle_client_connection(client_sock)
+            except OSError as e:
+                logging.error(f"action: run | result: fail | error: {e}")
+                break
 
     def __handle_client_connection(self, client_sock):
         """
@@ -40,6 +62,20 @@ class Server:
         If a problem arises in the communication with the client, the
         client socket will also be closed
         """
+        self._client_sockets.append(client_sock)
+        try:
+            msg = self._receive_message(client_sock)
+            if msg is not None:
+                self._send_message(client_sock, msg)
+        finally:
+            try:
+                client_sock.close()
+            except Exception:
+                pass
+            if client_sock in self._client_sockets:
+                self._client_sockets.remove(client_sock)
+
+    def _receive_message(self, client_sock):
         try:
             data = b""
             while not data.endswith(b"\n"):
@@ -47,33 +83,21 @@ class Server:
                 if not chunk:
                     break
                 data += chunk
+            if not data:
+                return None
             msg = data.rstrip().decode('utf-8')
-
-            # Parseo el protocolo
-            campos = dict(item.split("=", 1) for item in msg.split("|") if "=" in item)
-            nombre = campos.get("NOMBRE", "")
-            apellido = campos.get("APELLIDO", "")  
-            documento = campos.get("DOCUMENTO", "")
-            nacimiento = campos.get("NACIMIENTO", "")
-            numero = campos.get("NUMERO", "")
-            
-            bet = utils.Bet(
-                agency = 1,
-                first_name = nombre,
-                last_name = apellido,
-                document = documento,
-                birthdate = nacimiento,
-                number = numero
-            )
-
-            utils.store_bets([bet])
-            logging.info(f'action: apuesta_almacenada | result: success | dni: {documento} | numero: {numero}')
-            client_sock.sendall(b"OK\n")
-
-        except Exception as e:
+            addr = client_sock.getpeername()
+            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
+            return msg
+        except OSError as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")
-        finally:
-            client_sock.close()
+            return None
+
+    def _send_message(self, client_sock, msg):
+        try:
+            client_sock.sendall((msg + "\n").encode('utf-8'))
+        except OSError as e:
+            logging.error(f"action: send_message | result: fail | error: {e}")
 
     def __accept_new_connection(self):
         """

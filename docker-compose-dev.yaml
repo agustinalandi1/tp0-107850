@@ -44,6 +44,18 @@ services:
       - ./client/config.yaml:/config.yaml
     depends_on:
       - server
+  client2:
+    container_name: client2
+    image: client:latest
+    entrypoint: /client
+    environment:
+      - CLI_ID=2
+    networks:
+      - testing_net
+    volumes:
+      - ./client/config.yaml:/config.yaml
+    depends_on:
+      - server
 networks:
   testing_net:
     ipam:
