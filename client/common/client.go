@@ -88,9 +88,17 @@ func (c *Client) StartClientLoop() {
 			return
 		}
 
-		// Modify the send to avoid short-write
-		msg := fmt.Sprintf("[CLIENT %v] Message N°%v\n", c.config.ID, msgID)
-		_, err := c.conn.Write([]byte(msg))
+		nombre := os.Getenv("NOMBRE")
+		apellido := os.Getenv("APELLIDO")
+		documento := os.Getenv("DOCUMENTO")
+		nacimiento := os.Getenv("NACIMIENTO")
+		numero := os.Getenv("NUMERO")
+
+		// Construyo el mensaje de protocolo con formato clave=valor|
+		protocolMsg := fmt.Sprintf("NOMBRE=%s|APELLIDO=%s|DOCUMENTO=%s|NACIMIENTO=%s|NUMERO=%s\n",
+		nombre, apellido, documento, nacimiento, numero)
+
+		_, err := c.conn.Write([]byte(protocolMsg))
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v",
 				c.config.ID,
@@ -99,8 +107,9 @@ func (c *Client) StartClientLoop() {
 			return
 		}
 
+		// Leer la respuesta
 		msgReader := bufio.NewReader(c.conn)
-		msg, err = msgReader.ReadString('\n')
+		reponse, err := msgReader.ReadString('\n')
 		c.conn.Close()
 
 		if err != nil {
@@ -113,7 +122,12 @@ func (c *Client) StartClientLoop() {
 
 		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
 			c.config.ID,
-			msg,
+			reponse,
+		)
+
+		log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
+			documento,
+			numero,
 		)
 
 		// Wait a time between sending one message and the next one

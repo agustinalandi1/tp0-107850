@@ -16,6 +16,28 @@ services:
     entrypoint: /client
     environment:
       - CLI_ID=1
+      - NOMBRE=Nombre1
+      - APELLIDO=Apellido1
+      - DOCUMENTO=40000001
+      - NACIMIENTO=2001-01-01
+      - NUMERO=7001
+    networks:
+      - testing_net
+    volumes:
+      - ./client/config.yaml:/config.yaml
+    depends_on:
+      - server
+  client2:
+    container_name: client2
+    image: client:latest
+    entrypoint: /client
+    environment:
+      - CLI_ID=2
+      - NOMBRE=Nombre2
+      - APELLIDO=Apellido2
+      - DOCUMENTO=40000002
+      - NACIMIENTO=2002-01-01
+      - NUMERO=7002
     networks:
       - testing_net
     volumes:

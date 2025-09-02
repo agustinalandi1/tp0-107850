@@ -1,6 +1,7 @@
 import socket
 import logging
 import signal
+from common import utils
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -40,7 +41,6 @@ class Server:
         client socket will also be closed
         """
         try:
-            # TODO: Modify the receive to avoid short-reads
             data = b""
             while not data.endswith(b"\n"):
                 chunk = client_sock.recv(1024)
@@ -49,14 +49,29 @@ class Server:
                 data += chunk
             msg = data.rstrip().decode('utf-8')
 
-            addr = client_sock.getpeername()
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
+            # Parseo el protocolo
+            campos = dict(item.split("=", 1) for item in msg.split("|") if "=" in item)
+            nombre = campos.get("NOMBRE", "")
+            apellido = campos.get("APELLIDO", "")  
+            documento = campos.get("DOCUMENTO", "")
+            nacimiento = campos.get("NACIMIENTO", "")
+            numero = campos.get("NUMERO", "")
+            
+            bet = utils.Bet(
+                agency = 1,
+                first_name = nombre,
+                last_name = apellido,
+                document = documento,
+                birthdate = nacimiento,
+                number = numero
+            )
 
-            # TODO: Modify the send to avoid short-writes
-            client_sock.sendall((msg + "\n").encode('utf-8'))
+            utils.store_bets([bet])
+            logging.info(f'action: apuesta_almacenada | result: success | dni: {documento} | numero: {numero}')
+            client_sock.sendall(b"OK\n")
 
-        except OSError as e:
-            logging.error("action: receive_message | result: fail | error: {e}")
+        except Exception as e:
+            logging.error(f"action: receive_message | result: fail | error: {e}")
         finally:
             client_sock.close()
 
