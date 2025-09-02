@@ -25,7 +25,9 @@ type ClientConfig struct {
 // Client Entity that encapsulates how
 type Client struct {
 	config ClientConfig
-	conn   net.Conn
+	conn net.Conn
+	terminate bool
+	signalChan chan os.Signal
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -33,8 +35,20 @@ type Client struct {
 func NewClient(config ClientConfig) *Client {
 	client := &Client{
 		config: config,
+		signalChan: make(chan os.Signal, 1),
 	}
+	signal.Notify(client.signalChan, syscall.SIGTERM)
+	go client.handleSigterm()
 	return client
+}
+
+func (c *Client) handleSigterm() {
+	<-c.signalChan
+	log.Infof("action: signal_received | result: success | client_id: %v", c.config.ID)
+	c.terminate = true
+	c.closeClientSocket()
+	log.Infof("action: shutdown | result: success | client_id: %v", c.config.ID)
+	os.Exit(0)
 }
 
 // CreateClientSocket Initializes client socket. In case of
@@ -58,62 +72,53 @@ func (c *Client) closeClientSocket() {
 	if c.conn != nil {
 		c.conn.Close()
 		log.Infof("action: close_socket | result: success | client_id: %v", c.config.ID)
+		c.conn = nil
 	}
 }
 
 // StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
 
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGTERM)
-
-	go func() {
-		<-signalChan
-		log.Infof("action: signal_received | result: success | client_id: %v", c.config.ID)
-		if c.conn != nil {
-			c.conn.Close()
-			log.Infof("action: close_socket | result: success | client_id: %v", c.config.ID)
-		}
-		os.Exit(0)
-	}()
-
 	// There is an autoincremental msgID to identify every message sent
 	// Messages if the message amount threshold has not been surpassed
 	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
+
+		if c.terminate {
+			log.Infof("action: loop_terminated | result: by_signal | client_id: %v", c.config.ID)
+			break
+		}
+
 		// Create the connection the server in every loop iteration. Send an
-		c.createClientSocket()
-
-		if c.conn == nil {
-			log.Errorf("action: connect | result: fail | client_id: %v", c.config.ID)
-			return
-		}
-
-		// Modify the send to avoid short-write
-		msg := fmt.Sprintf("[CLIENT %v] Message N°%v\n", c.config.ID, msgID)
-		_, err := c.conn.Write([]byte(msg))
+		err := c.createClientSocket()
 		if err != nil {
-			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
-			return
+			time.Sleep(1 * time.Second)
+			continue
 		}
 
+		msg := fmt.Sprintf("[CLIENT %v] Message N°%v\n", c.config.ID, msgID)
+		_, err = c.conn.Write([]byte(msg))
+		if err != nil {
+			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
+			c.closeClientSocket()
+			continue
+		}
+
+		// Leer la respuesta
 		msgReader := bufio.NewReader(c.conn)
-		msg, err = msgReader.ReadString('\n')
-		c.conn.Close()
+		reponse, err := msgReader.ReadString('\n')
+		c.closeClientSocket()
 
 		if err != nil {
 			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
 				c.config.ID,
 				err,
 			)
-			return
+			continue
 		}
 
 		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
 			c.config.ID,
-			msg,
+			reponse,
 		)
 
 		// Wait a time between sending one message and the next one
