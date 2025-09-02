@@ -50,7 +50,7 @@ class Server:
                 client_sock = self.__accept_new_connection()
                 if client_sock:
                     self.__handle_client_connection(client_sock)
-            except OSError:
+            except OSError as e:
                 logging.error(f"action: run | result: fail | error: {e}")
                 break
 
