@@ -166,8 +166,7 @@ class Server:
                 self._winners_by_agency.setdefault(str(bet.agency), []).append(bet.document)
 
         self._draw_done = True
-        logging.info("action: sorteo | result: success")
-        logging.debug(f"action: draw_results | winners_by_agency: {self._winners_by_agency}")
+        logging.info(f"action: draw_results | result: success | winners_by_agency: {self._winners_by_agency}")
 
     def _handle_winners_request(self, client_sock, message):
         try:

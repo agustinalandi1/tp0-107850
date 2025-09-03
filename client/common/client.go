@@ -233,8 +233,6 @@ func (c *Client) requestWinners() {
 		log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", len(dnis))
 		return
 	}
-
-	log.Errorf("action: consulta_ganadores | result: fail | client_id: %v", c.config.ID)
 }
 
 // StartClientLoop Send messages to the client until some time threshold is met
@@ -251,6 +249,9 @@ func (c *Client) StartClientLoop() {
 		return
 	}
 	defer parser.Close()
+
+	log.Infof("action: config | result: success | client_id: %v | server_address: %s | loop_amount: %d | loop_period: %v | log_level: INFO",
+		c.config.ID, c.config.ServerAddress, c.config.LoopAmount, c.config.LoopPeriod)
 
 	log.Infof("action: parser_init | result: success | client_id: %v", c.config.ID)
 	
