@@ -175,12 +175,9 @@ func (c *Client) notifyEndOfBets() bool {
 
 // requestWinners solicita los ganadores al servidor, reintentando en caso de fallo
 func (c *Client) requestWinners() {
-	const MAX_RETRIES = 5
-	const INITIAL_DELAY = 200 * time.Millisecond
+	const RETRY_DELAY = 500 * time.Millisecond
 
-	delay := INITIAL_DELAY
-
-	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
+	for {
 		if c.terminate {
 			log.Infof("action: consulta_ganadores | result: cancelled | client_id: %v", c.config.ID)
 			return
@@ -189,8 +186,7 @@ func (c *Client) requestWinners() {
 		err := c.createClientSocket()
 		if err != nil {
 			log.Errorf("action: connect | result: fail | step: request_winners | attempt: %d | error: %v", attempt, err)
-			time.Sleep(delay)
-			delay *= 2
+			time.Sleep(RETRY_DELAY)
 			continue
 		}
 
@@ -199,8 +195,7 @@ func (c *Client) requestWinners() {
 		if err != nil {
 			log.Errorf("action: send_winners_request | result: fail | attempt: %d | error: %v", attempt, err)
 			c.closeClientSocket()
-			time.Sleep(delay)
-			delay *= 2
+			time.Sleep(RETRY_DELAY)
 			continue
 		}
 
@@ -208,8 +203,12 @@ func (c *Client) requestWinners() {
 		c.closeClientSocket()
 		if err != nil {
 			log.Errorf("action: read_winners_response | result: fail | attempt: %d | error: %v", attempt, err)
-			time.Sleep(delay)
-			delay *= 2
+			time.Sleep(RETRY_DELAY)
+			continue
+		}
+
+		if resp == "FAIL|draw_not_ready" {
+			time.Sleep(RETRY_DELAY)
 			continue
 		}
 
