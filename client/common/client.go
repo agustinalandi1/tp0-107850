@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 	"io"
+	"fmt"
 
 	"github.com/op/go-logging"
 	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/common/bet"
@@ -132,7 +133,7 @@ func (c *Client) sendBatchesFromParser(parser *bet.Parser) {
 			continue
 		}
 
-		message := bet.SerializeBatch(batch)
+		message := bet.SerializeBatch(batch) + "\n"
 		success := c.sendBatchWithRetry(message)
 
 		if success {
@@ -148,6 +149,76 @@ func (c *Client) sendBatchesFromParser(parser *bet.Parser) {
 	}
 
 	log.Infof("action: total_batches_sent | result: success | count: %d | client_id: %v", batchIndex, c.config.ID)
+}
+
+// notifyEndOfBets notifica el final de las apuestas al servidor
+func (c *Client) notifyEndOfBets() bool {
+	msg := fmt.Sprintf("FIN|%s\n", c.config.ID)
+
+	err := c.createClientSocket()
+	if err != nil {
+		log.Errorf("action: connect | result: fail | step: notify_end | error: %v", err)
+		return false
+	}
+
+	err = communication.SendMessage(c.conn, msg)
+	c.closeClientSocket()
+
+	if err != nil {
+		log.Errorf("action: notify_end | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return false
+	}
+
+	log.Infof("action: notify_end | result: success | client_id: %v", c.config.ID)
+	return true
+}
+
+// requestWinners solicita los ganadores al servidor, reintentando en caso de fallo
+func (c *Client) requestWinners() {
+	const MAX_RETRIES = 5
+	const INITIAL_DELAY = 200 * time.Millisecond
+
+	delay := INITIAL_DELAY
+
+	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
+		if c.terminate {
+			log.Infof("action: consulta_ganadores | result: cancelled | client_id: %v", c.config.ID)
+			return
+		}
+
+		err := c.createClientSocket()
+		if err != nil {
+			log.Errorf("action: connect | result: fail | step: request_winners | attempt: %d | error: %v", attempt, err)
+			time.Sleep(delay)
+			delay *= 2
+			continue
+		}
+
+		req := fmt.Sprintf("WINNERS|%s\n", c.config.ID)
+		err = communication.SendMessage(c.conn, req)
+		if err != nil {
+			log.Errorf("action: send_winners_request | result: fail | attempt: %d | error: %v", attempt, err)
+			c.closeClientSocket()
+			time.Sleep(delay)
+			delay *= 2
+			continue
+		}
+
+		resp, err := communication.ReadMessage(c.conn)
+		c.closeClientSocket()
+		if err != nil {
+			log.Errorf("action: read_winners_response | result: fail | attempt: %d | error: %v", attempt, err)
+			time.Sleep(delay)
+			delay *= 2
+			continue
+		}
+
+		dnis := bet.ParseWinnerResponse(resp)
+		log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", len(dnis))
+		return
+	}
+
+	log.Errorf("action: consulta_ganadores | result: fail | client_id: %v", c.config.ID)
 }
 
 // StartClientLoop Send messages to the client until some time threshold is met
@@ -168,6 +239,8 @@ func (c *Client) StartClientLoop() {
 	log.Infof("action: parser_init | result: success | client_id: %v", c.config.ID)
 	
 	c.sendBatchesFromParser(parser)
+	c.notifyEndOfBets()
+	c.requestWinners()
 
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }

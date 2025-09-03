@@ -85,3 +85,12 @@ func (p *Parser) NextBatch() ([]Bet, error) {
 
 	return bets, nil
 }
+
+func ParseWinnerResponse(resp string) []string {
+	parts := strings.Split(resp, "|")
+	if len(parts) < 2 || parts[0] != "WINNERS" {
+		return []string{}
+	}
+	return parts[1:] // DNIs
+}
+

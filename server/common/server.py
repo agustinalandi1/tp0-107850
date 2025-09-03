@@ -3,7 +3,7 @@ import logging
 import signal
 from common.communication import read_n, write_all
 from common.bet import deserialize_batch
-from common.utils import Bet, store_bets
+from common.utils import Bet, store_bets, load_bets, has_won
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -13,6 +13,9 @@ class Server:
         self._server_socket.listen(listen_backlog)
         self._shutdown = False
         self._client_sockets = []
+        self._notified_agencies = set()
+        self._winners_by_agency = {}
+        self._draw_done = False
 
         signal.signal(signal.SIGTERM, self._handle_sigterm)
 
@@ -86,30 +89,23 @@ class Server:
             if not data:
                 return None
 
-            logging.debug(f"DEBUG SERVER raw_data: {repr(data)}")
-            decoded = data.decode().strip()
-            logging.debug(f"DEBUG SERVER decoded_data: {decoded}")
-            
-            try:
-                raw_bets = deserialize_batch(decoded)
-                bet_objects = []
+            decoded = data.decode().strip()            
+            if decoded.startswith("count|"):
+                self._handle_bet_batch(client_sock, decoded)
 
-                for bet in raw_bets:
-                    nombre, apellido, dni, nacimiento, numero, agencia = bet
-                    bet_obj = Bet(agencia, nombre, apellido, dni, nacimiento, numero)
-                    bet_objects.append(bet_obj)
+            elif decoded.startswith("FIN|"):
+                self._handle_end_notification(client_sock, decoded)
 
-                store_bets(bet_objects)
-                logging.info(f"action: apuesta_recibida | result: success | cantidad: {len(bet_objects)}")
-                write_all(client_sock, b"OK")
+            elif decoded.startswith("WINNERS|"):
+                self._handle_winners_request(client_sock, decoded)
 
-            except Exception as e:
-                count_str = decoded.split('|')[1] if decoded.startswith("count|") else "?"
-                logging.info(f"action: apuesta_recibida | result: fail | cantidad: {count_str} | error: {e}")
-                write_all(client_sock, b"ER")
+            else:
+                logging.warning(f"action: unknown_message | result: ignored | content: {decoded}")
+                write_all(client_sock, b"ER\n")
 
         except Exception as e:
-            logging.error(f"action: process_batch | result: fail | error: {e}")
+            logging.error(f"action: receive_message | result: fail | error: {e}")
+            write_all(client_sock, b"ER\n")
 
     def __accept_new_connection(self):
         """
@@ -124,3 +120,66 @@ class Server:
         c, addr = self._server_socket.accept()
         logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
         return c
+
+    def _handle_bet_batch(self, client_sock, decoded):
+        try:
+            raw_bets = deserialize_batch(decoded)
+            bet_objects = []
+
+            for bet in raw_bets:
+                first_name, last_name, document, birthdate, number, agency = bet
+                bet_obj = Bet(agency, first_name, last_name, document, birthdate, number)
+                bet_objects.append(bet_obj)
+
+            store_bets(bet_objects)
+            logging.info(f"action: bets_received | result: success | amount: {len(bet_objects)}")
+            write_all(client_sock, b"OK\n")
+
+        except Exception as e:
+            count_str = decoded.split('|')[1] if decoded.startswith("count|") else "?"
+            logging.info(f"action: bets_received | result: fail | amount: {count_str} | error: {e}")
+            write_all(client_sock, b"ER\n")
+
+    def _handle_end_notification(self, client_sock, message):
+        try:
+            _, agency = message.split("|")
+            self._notified_agencies.add(agency)
+            logging.info(f"action: end_of_bets | result: success | agency: {agency}")
+            write_all(client_sock, b"OK\n")
+
+            logging.info(f"DEBUG SERVER agencias notificadas hasta ahora: {self._notified_agencies}")
+            if len(self._notified_agencies) == 5 and not self._draw_done:
+                self._perform_draw()
+
+        except Exception as e:
+            logging.error(f"action: handle_end_notification | result: fail | error: {e}")
+            write_all(client_sock, b"ER\n")
+
+    def _perform_draw(self):
+        self._winners_by_agency = {}
+
+        for bet in load_bets():
+            if has_won(bet):
+                self._winners_by_agency.setdefault(str(bet.agency), []).append(bet.document)
+
+        self._draw_done = True
+        logging.info("action: draw | result: success")
+
+    def _handle_winners_request(self, client_sock, message):
+        try:
+            if not self._draw_done:
+                logging.warning("action: winners_request | result: rejected | reason: draw_not_ready")
+                write_all(client_sock, b"WINNERS|\n")
+                return
+
+            _, agency = message.split("|")
+            winners = self._winners_by_agency.get(agency, [])
+            response = "WINNERS|" + "|".join(winners) + "\n"
+            write_all(client_sock, response.encode())
+
+            logging.info(f"action: winners_request | result: success | agency: {agency} | winners_count: {len(winners)}")
+
+        except Exception as e:
+            logging.error(f"action: winners_request | result: fail | error: {e}")
+            write_all(client_sock, b"ER\n")
+
