@@ -87,10 +87,24 @@ func (p *Parser) NextBatch() ([]Bet, error) {
 }
 
 func ParseWinnerResponse(resp string) []string {
-	parts := strings.Split(resp, "|")
-	if len(parts) < 2 || parts[0] != "WINNERS" {
+	resp = strings.TrimSpace(resp)
+	if !strings.HasPrefix(resp, "WINNERS") {
 		return []string{}
 	}
-	return parts[1:] // DNIs
+	parts := strings.Split(resp, "|")
+	// "WINNERS" solo -> sin ganadores
+	if len(parts) < 2 {
+		return []string{}
+	}
+
+	var winners []string
+	for _, p := range parts[1:] {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue // ignorar tokens vacíos (por si alguna vez llega "WINNERS|")
+		}
+		winners = append(winners, p) // sin validación de formato
+	}
+	return winners
 }
 

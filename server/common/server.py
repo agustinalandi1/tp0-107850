@@ -177,7 +177,11 @@ class Server:
             _, agency = message.split("|")
             agency = agency.replace("client", "")
             winners = self._winners_by_agency.get(agency, [])
-            response = "WINNERS|" + "|".join(winners) + "\n"
+            
+            if winners:
+                response = "WINNERS|" + "|".join(winners) + "\n"
+            else:
+                response = "WINNERS\n"
             write_all(client_sock, response.encode())
 
             logging.info(f"action: winners_request | result: success | agency: {agency} | winners_count: {len(winners)}")
