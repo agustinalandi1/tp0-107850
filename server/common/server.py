@@ -168,7 +168,7 @@ class Server:
     def _handle_winners_request(self, client_sock, message):
         try:
             if not self._draw_done:
-                logging.warning("action: winners_request | result: rejected | reason: draw_not_ready")
+                logging.warning("action: winners_request | result: fail | reason: draw_not_ready")
                 write_all(client_sock, b"WINNERS|\n")
                 return
 
