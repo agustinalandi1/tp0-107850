@@ -185,7 +185,7 @@ func (c *Client) requestWinners() {
 
 		err := c.createClientSocket()
 		if err != nil {
-			log.Errorf("action: connect | result: fail | step: request_winners | attempt: %d | error: %v", attempt, err)
+			log.Errorf("action: connect | result: fail | step: request_winners | error: %v", err)
 			time.Sleep(RETRY_DELAY)
 			continue
 		}
@@ -193,7 +193,7 @@ func (c *Client) requestWinners() {
 		req := fmt.Sprintf("WINNERS|%s\n", c.config.ID)
 		err = communication.SendMessage(c.conn, req)
 		if err != nil {
-			log.Errorf("action: send_winners_request | result: fail | attempt: %d | error: %v", attempt, err)
+			log.Errorf("action: send_winners_request | result: fail | error: %v", err)
 			c.closeClientSocket()
 			time.Sleep(RETRY_DELAY)
 			continue
@@ -202,7 +202,7 @@ func (c *Client) requestWinners() {
 		resp, err := communication.ReadMessage(c.conn)
 		c.closeClientSocket()
 		if err != nil {
-			log.Errorf("action: read_winners_response | result: fail | attempt: %d | error: %v", attempt, err)
+			log.Errorf("action: read_winners_response | result: fail | error: %v", err)
 			time.Sleep(RETRY_DELAY)
 			continue
 		}
