@@ -176,11 +176,8 @@ class Server:
 
             _, agency = message.split("|")
             agency = agency.replace("client", "")
-            logging.debug(f"action: winners_request | status: searching_key | requested_key: '{agency}'")
             winners = self._winners_by_agency.get(agency, [])
             response = "WINNERS|" + "|".join(winners) + "\n"
-            logging.debug(f"action: response_to_agency | agency: {agency} | response: {response.strip()}")
-
             write_all(client_sock, response.encode())
 
             logging.info(f"action: winners_request | result: success | agency: {agency} | winners_count: {len(winners)}")
