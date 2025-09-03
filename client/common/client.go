@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"io"
 
 	"github.com/op/go-logging"
 	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/common/bet"
@@ -20,6 +21,7 @@ type ClientConfig struct {
 	ServerAddress string
 	LoopAmount    int
 	LoopPeriod    time.Duration
+	BatchMaxAmount int
 }
 
 // Client Entity that encapsulates how
@@ -77,8 +79,8 @@ func (c *Client) closeClientSocket() {
 	}
 }
 
-// sendBetWithRetry intenta enviar una apuesta con reintentos
-func (client *Client) sendBetWithRetry(message, dni, numero string) bool {
+// sendBatchWithRetry intenta enviar un batch de apuestas con reintentos
+func (client *Client) sendBatchWithRetry(batchMessage string) bool {
 	const MAX_RETRIES = 3
 
 	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
@@ -89,7 +91,7 @@ func (client *Client) sendBetWithRetry(message, dni, numero string) bool {
 			continue
 		}
 
-		err = communication.SendMessage(client.conn, message)
+		err = communication.SendMessage(client.conn, batchMessage)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | attempt: %d | error: %v", attempt, err)
 			client.closeClientSocket()
@@ -112,34 +114,61 @@ func (client *Client) sendBetWithRetry(message, dni, numero string) bool {
 	return false
 }
 
-// StartClientLoop Send messages to the client until some time threshold is met
-func (c *Client) StartClientLoop() {
+func (c *Client) sendBatchesFromParser(parser *bet.Parser) {
+	batchIndex := 0
 
-	// There is an autoincremental msgID to identify every message sent
-	// Messages if the message amount threshold has not been surpassed
-	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
-
+	for {
 		if c.terminate {
 			log.Infof("action: loop_terminated | result: by_signal | client_id: %v", c.config.ID)
 			break
 		}
 
-		message, dni, numero := bet.BuildBetMessage(c.config.ID)
-		success := c.sendBetWithRetry(message, dni, numero)
-		if success {
-			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
-				dni,
-				numero,
-			)
-		} else {
-			log.Errorf("action: apuesta_enviada | result: fail | dni: %v | numero: %v",
-				dni,
-				numero,
-			)
+		batch, err := parser.NextBatch()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Errorf("action: read_batch | result: fail | error: %v", err)
+			continue
 		}
 
-		time.Sleep(c.config.LoopPeriod)
+		message := bet.SerializeBatch(batch)
+		success := c.sendBatchWithRetry(message)
 
+		if success {
+			log.Infof("action: batch_enviado | result: success | client_id: %v | index: %d | size: %d",
+				c.config.ID, batchIndex, len(message))
+		} else {
+			log.Errorf("action: batch_enviado | result: fail | client_id: %v | index: %d | size: %d",
+				c.config.ID, batchIndex, len(message))
+		}
+
+		batchIndex++
+		time.Sleep(c.config.LoopPeriod)
 	}
+
+	log.Infof("action: total_batches_sent | count: %d | client_id: %v", batchIndex, c.config.ID)
+}
+
+// StartClientLoop Send messages to the client until some time threshold is met
+func (c *Client) StartClientLoop() {
+
+	maxBatchSize := c.config.BatchMaxAmount
+	if maxBatchSize <= 0 {
+		maxBatchSize = 15 // valor por defecto conservador
+	}
+
+	parser, err := bet.NewParser(c.config.ID, maxBatchSize)
+	if err != nil {
+		log.Criticalf("action: open_csv | result: fail | error: %v", err)
+		return
+	}
+	defer parser.Close()
+
+	log.Infof("action: parser_init | result: success | client_id: %v", c.config.ID)
+	
+	c.sendBatchesFromParser(parser)
+
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }
+

@@ -2,7 +2,7 @@ import socket
 import logging
 import signal
 from common.communication import read_n, write_all
-from common.bet import deserialize_bet
+from common.bet import deserialize_batch
 from common.utils import Bet, store_bets
 
 class Server:
@@ -87,15 +87,29 @@ class Server:
                 return None
 
             logging.debug(f"DEBUG SERVER raw_data: {repr(data)}")
-            logging.debug(f"DEBUG SERVER decoded_data: {data.decode()}")
-            nombre, apellido, dni, nacimiento, numero, agencia = deserialize_bet(data.decode())
-            bet = Bet(agencia, nombre, apellido, dni, nacimiento, numero)
-            store_bets([bet])
-            logging.info(f"action: apuesta_almacenada | result: success | dni: {dni} | numero: {numero}")
-            write_all(client_sock, b"OK")
+            decoded = data.decode().strip()
+            logging.debug(f"DEBUG SERVER decoded_data: {decoded}")
+            
+            try:
+                raw_bets = deserialize_batch(decoded)
+                bet_objects = []
+
+                for bet in raw_bets:
+                    nombre, apellido, dni, nacimiento, numero, agencia = bet
+                    bet_obj = Bet(agencia, nombre, apellido, dni, nacimiento, numero)
+                    bet_objects.append(bet_obj)
+
+                store_bets(bet_objects)
+                logging.info(f"action: apuesta_recibida | result: success | cantidad: {len(bet_objects)}")
+                write_all(client_sock, b"OK")
+
+            except Exception as e:
+                count_str = decoded.split('|')[1] if decoded.startswith("count|") else "?"
+                logging.info(f"action: apuesta_recibida | result: fail | cantidad: {count_str} | error: {e}")
+                write_all(client_sock, b"ER")
 
         except Exception as e:
-           logging.error(f"action: process_bet | result: fail | error: {e}")
+            logging.error(f"action: process_batch | result: fail | error: {e}")
 
     def __accept_new_connection(self):
         """

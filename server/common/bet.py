@@ -28,3 +28,37 @@ def deserialize_bet(data: str):
 
     nombre, apellido, dni, nacimiento, numero, agencia = fields
     return nombre, apellido, dni, nacimiento, numero, agencia
+
+# Deserializa un mensaje de batch con formato: count|N|len|campo|len|campo|... (6 campos por apuesta)
+# Devuelve una lista de apuestas como tuplas (nombre, apellido, dni, nacimiento, numero, agencia)
+def deserialize_batch(data: str) -> list:
+    
+    parts = data.strip().split("|")
+    if len(parts) < 2 or parts[0] != "count":
+        raise ValueError("invalid format: missing count header")
+
+    try:
+        count = int(parts[1])
+    except ValueError:
+        raise ValueError("invalid count value")
+
+    bets = []
+    i = 2
+    while len(bets) < count:
+        fields = []
+        for _ in range(6):
+            if i + 1 >= len(parts):
+                raise ValueError("invalid format: incomplete field")
+            try:
+                length = int(parts[i])
+                value = parts[i + 1]
+                if len(value) != length:
+                    raise ValueError("length mismatch")
+                fields.append(value)
+                i += 2
+            except Exception:
+                raise ValueError("invalid field format")
+
+        bets.append(tuple(fields))
+
+    return bets
