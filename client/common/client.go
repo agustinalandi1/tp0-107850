@@ -207,7 +207,8 @@ func (c *Client) requestWinners() {
 			continue
 		}
 
-		if resp == "FAIL|draw_not_ready" {
+		if resp == "WAIT\n" {
+			log.Infof("action: consulta_ganadores | result: wait | client_id: %v", c.config.ID)
 			time.Sleep(RETRY_DELAY)
 			continue
 		}
