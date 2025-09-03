@@ -132,12 +132,12 @@ class Server:
                 bet_objects.append(bet_obj)
 
             store_bets(bet_objects)
-            logging.info(f"action: bets_received | result: success | amount: {len(bet_objects)}")
+            logging.info(f"action: apuesta_recibida | result: success | cantidad: {len(bet_objects)}")
             write_all(client_sock, b"OK\n")
 
         except Exception as e:
             count_str = decoded.split('|')[1] if decoded.startswith("count|") else "?"
-            logging.info(f"action: bets_received | result: fail | amount: {count_str} | error: {e}")
+            logging.info(f"action: apuesta_recibida | result: fail | cantidad: {count_str} | error: {e}")
             write_all(client_sock, b"ER\n")
 
     def _handle_end_notification(self, client_sock, message):
@@ -176,9 +176,9 @@ class Server:
             response = "WINNERS|" + "|".join(winners) + "\n"
             write_all(client_sock, response.encode())
 
-            logging.info(f"action: winners_request | result: success | agency: {agency} | winners_count: {len(winners)}")
+            logging.info(f"action: consulta_ganadores | result: success | cant_ganadores: {len(winners)} | source: {agency}")
 
         except Exception as e:
-            logging.error(f"action: winners_request | result: fail | error: {e}")
+            logging.error(f"action: consulta_ganadores | result: fail | error: {e}")
             write_all(client_sock, b"ER\n")
 
