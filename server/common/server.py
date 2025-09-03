@@ -167,7 +167,7 @@ class Server:
 
         self._draw_done = True
         logging.info("action: sorteo | result: success")
-        logging.debug(f"DEBUG PERFORM DRAW action: draw_results | winners_by_agency: {self._winners_by_agency}")
+        logging.debug(f"action: draw_results | winners_by_agency: {self._winners_by_agency}")
 
     def _handle_winners_request(self, client_sock, message):
         try:
@@ -177,10 +177,10 @@ class Server:
 
             _, agency = message.split("|")
             agency = agency.replace("client", "")
-            logging.debug(f"DEBUG WINNERS REQUEST action: winners_request | status: searching_key | requested_key: '{agency}'")
+            logging.debug(f"action: winners_request | status: searching_key | requested_key: '{agency}'")
             winners = self._winners_by_agency.get(agency, [])
             response = "WINNERS|" + "|".join(winners) + "\n"
-            logging.debug(f"DEBUG WINNERS RESPONSE action: response_to_agency | agency: {agency} | response: {response.strip()}")
+            logging.debug(f"action: response_to_agency | agency: {agency} | response: {response.strip()}")
 
             write_all(client_sock, response.encode())
 
