@@ -147,7 +147,7 @@ func (c *Client) sendBatchesFromParser(parser *bet.Parser) {
 		time.Sleep(c.config.LoopPeriod)
 	}
 
-	log.Infof("action: total_batches_sent | count: %d | client_id: %v", batchIndex, c.config.ID)
+	log.Infof("action: total_batches_sent | result: success | count: %d | client_id: %v", batchIndex, c.config.ID)
 }
 
 // StartClientLoop Send messages to the client until some time threshold is met
