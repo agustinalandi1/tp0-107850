@@ -208,7 +208,7 @@ func (c *Client) requestWinners() {
 		}
 
 		if resp == "WAIT\n" {
-			log.Infof("action: consulta_ganadores | result: wait | client_id: %v", c.config.ID)
+			log.Infof("action: consulta_ganadores | result: in_progress | client_id: %v", c.config.ID)
 			time.Sleep(RETRY_DELAY)
 			continue
 		}

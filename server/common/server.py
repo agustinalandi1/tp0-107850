@@ -4,6 +4,7 @@ import signal
 from common.communication import read_n, write_all
 from common.bet import deserialize_batch
 from common.utils import Bet, store_bets, load_bets, has_won
+import os
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -13,12 +14,14 @@ class Server:
         self._server_socket.listen(listen_backlog)
         self._shutdown = False
         self._client_sockets = []
-        self._notified_agencies = set()
+        self._finished_clients = 0
+        self._expected_clients = int(os.environ.get("EXPECTED_CLIENTS", 5))  # fallback por si no se setea
         self._winners_by_agency = {}
         self._draw_done = False
+        logging.info(f"action: init_server | result: success | expected_clients: {self._expected_clients}")
 
         signal.signal(signal.SIGTERM, self._handle_sigterm)
-
+        
     def _handle_sigterm(self, signum, frame):
         logging.info("action: handle_sigterm | result: success")
         self._shutdown_server()
@@ -36,9 +39,9 @@ class Server:
         except Exception as e:
             logging.error(f"action: close_server_socket | result: fail | error: {e}")
 
-        for sock in self._client_sockets:
+        for socket in self._client_sockets:
             try:
-                sock.close()
+                socket.close()
                 logging.info("action: close_client_socket | result: success")
             except Exception as e:
                 logging.error(f"action: close_client_socket | result: fail | error: {e}")
@@ -143,14 +146,13 @@ class Server:
     def _handle_end_notification(self, client_sock, message):
         try:
             _, agency = message.split("|")
-            self._notified_agencies.add(agency)
+            self._finished_clients += 1
             logging.info(f"action: end_of_bets | result: success | agency: {agency}")
             write_all(client_sock, b"OK\n")
 
-            logging.info(f"DEBUG SERVER agencias notificadas hasta ahora: {self._notified_agencies}")
-            if len(self._notified_agencies) == 5 and not self._draw_done:
+            if self._finished_clients == self._expected_clients and not self._draw_done:
                 self._perform_draw()
-
+                
         except Exception as e:
             logging.error(f"action: handle_end_notification | result: fail | error: {e}")
             write_all(client_sock, b"ER\n")
@@ -176,9 +178,9 @@ class Server:
             response = "WINNERS|" + "|".join(winners) + "\n"
             write_all(client_sock, response.encode())
 
-            logging.info(f"action: consulta_ganadores | result: success | cant_ganadores: {len(winners)} | source: {agency}")
-
+            logging.info(f"action: winners_request | result: success | agency: {agency} | winners_count: {len(winners)}")
+        
         except Exception as e:
-            logging.error(f"action: consulta_ganadores | result: fail | error: {e}")
+            logging.error(f"action: winners_request | result: fail | error: {e}")
             write_all(client_sock, b"ER\n")
 
