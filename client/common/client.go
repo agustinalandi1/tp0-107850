@@ -155,22 +155,38 @@ func (c *Client) sendBatchesFromParser(parser *bet.Parser) {
 func (c *Client) notifyEndOfBets() bool {
 	msg := fmt.Sprintf("FIN|%s\n", c.config.ID)
 
-	err := c.createClientSocket()
-	if err != nil {
-		log.Errorf("action: connect | result: fail | step: notify_end | error: %v", err)
-		return false
+	const MAX_RETRIES = 3
+	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
+		
+		err := c.createClientSocket()
+		if err != nil {
+			log.Errorf("action: connect | result: fail | error: %v", err)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		err = communication.SendMessage(c.conn, msg)
+		if err != nil {
+			log.Errorf("action: notify_end | result: fail | client_id: %v | error: %v", c.config.ID, err)
+			c.closeClientSocket()
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		err = communication.ReceiveAck(c.conn)
+        c.closeClientSocket() // cierro después de recibir el ACK
+		if err != nil {
+             log.Errorf("action: receive_ack_notify_end | result: fail | attempt: %d | error: %v", attempt, err)
+             time.Sleep(500 * time.Millisecond)
+             continue
+        }
+		
+		log.Infof("action: notify_end | result: success | client_id: %v", c.config.ID)
+		return true
 	}
 
-	err = communication.SendMessage(c.conn, msg)
-	c.closeClientSocket()
-
-	if err != nil {
-		log.Errorf("action: notify_end | result: fail | client_id: %v | error: %v", c.config.ID, err)
-		return false
-	}
-
-	log.Infof("action: notify_end | result: success | client_id: %v", c.config.ID)
-	return true
+	log.Errorf("action: notify_end | result: fail | client_id: %v", c.config.ID)
+    return false
 }
 
 // requestWinners solicita los ganadores al servidor, reintentando en caso de fallo

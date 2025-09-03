@@ -41,6 +41,10 @@ def deserialize_batch(data: str) -> list:
         count = int(parts[1])
     except ValueError:
         raise ValueError("invalid count value")
+    
+    expected_fields = count * 6 * 2
+    if len(parts) - 2 < expected_fields:
+        raise ValueError("not enough fields for all bets")
 
     bets = []
     i = 2
@@ -51,13 +55,15 @@ def deserialize_batch(data: str) -> list:
                 raise ValueError("invalid format: incomplete field")
             try:
                 length = int(parts[i])
-                value = parts[i + 1]
-                if len(value) != length:
-                    raise ValueError("length mismatch")
-                fields.append(value)
-                i += 2
-            except Exception:
-                raise ValueError("invalid field format")
+            except ValueError:
+                raise ValueError(f"invalid length format at index {i}: {parts[i]}")
+
+            value = parts[i + 1]
+            if len(value) != length:
+                raise ValueError(f"length mismatch at index {i}: expected {length}, got {len(value)}")
+
+            fields.append(value)
+            i += 2
 
         bets.append(tuple(fields))
 

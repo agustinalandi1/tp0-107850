@@ -92,23 +92,24 @@ class Server:
             if not data:
                 return None
 
-            decoded = data.decode().strip()            
-            if decoded.startswith("count|"):
-                self._handle_bet_batch(client_sock, decoded)
+            decoded_message = data.decode().strip()
+            if not decoded_message:
+                logging.debug("action: receive_message | result: success | status: empty_message_ignored")
+                return
 
-            elif decoded.startswith("FIN|"):
-                self._handle_end_notification(client_sock, decoded)
-
-            elif decoded.startswith("WINNERS|"):
-                self._handle_winners_request(client_sock, decoded)
-
+            if decoded_message.startswith("FIN|"):
+                self._handle_end_notification(client_sock, decoded_message)
+            elif decoded_message.startswith("WINNERS|"):
+                self._handle_winners_request(client_sock, decoded_message)
             else:
-                logging.warning(f"action: unknown_message | result: ignored | content: {decoded}")
-                write_all(client_sock, b"ER\n")
+                self._handle_bet_batch(client_sock, decoded_message)
 
         except Exception as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")
-            write_all(client_sock, b"ER\n")
+            try:
+                write_all(client_sock, b"ER\n")
+            except:
+                pass
 
     def __accept_new_connection(self):
         """
@@ -139,13 +140,13 @@ class Server:
             write_all(client_sock, b"OK\n")
 
         except Exception as e:
-            count_str = decoded.split('|')[1] if decoded.startswith("count|") else "?"
-            logging.info(f"action: apuesta_recibida | result: fail | cantidad: {count_str} | error: {e}")
+            logging.info(f"action: apuesta_recibida | result: fail | error: {e}")
             write_all(client_sock, b"ER\n")
 
     def _handle_end_notification(self, client_sock, message):
         try:
             _, agency = message.split("|")
+            agency = agency.replace("client", "")
             self._finished_clients += 1
             logging.info(f"action: end_of_bets | result: success | agency: {agency}")
             write_all(client_sock, b"OK\n")
@@ -165,7 +166,8 @@ class Server:
                 self._winners_by_agency.setdefault(str(bet.agency), []).append(bet.document)
 
         self._draw_done = True
-        logging.info("action: draw | result: success")
+        logging.info("action: sorteo | result: success")
+        logging.debug(f"DEBUG PERFORM DRAW action: draw_results | winners_by_agency: {self._winners_by_agency}")
 
     def _handle_winners_request(self, client_sock, message):
         try:
@@ -174,8 +176,12 @@ class Server:
                 return
 
             _, agency = message.split("|")
+            agency = agency.replace("client", "")
+            logging.debug(f"DEBUG WINNERS REQUEST action: winners_request | status: searching_key | requested_key: '{agency}'")
             winners = self._winners_by_agency.get(agency, [])
             response = "WINNERS|" + "|".join(winners) + "\n"
+            logging.debug(f"DEBUG WINNERS RESPONSE action: response_to_agency | agency: {agency} | response: {response.strip()}")
+
             write_all(client_sock, response.encode())
 
             logging.info(f"action: winners_request | result: success | agency: {agency} | winners_count: {len(winners)}")
