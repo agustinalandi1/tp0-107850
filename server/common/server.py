@@ -8,7 +8,7 @@ import os
 
 class Server:
     def __init__(self, port, listen_backlog):
-        # Initialize server socket
+        
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
@@ -21,11 +21,13 @@ class Server:
         logging.info(f"action: init_server | result: success | expected_clients: {self._expected_clients}")
 
         signal.signal(signal.SIGTERM, self._handle_sigterm)
-        
+
+    # handle_sigterm se encarga de manejar la señal SIGTERM para un apagado ordenado
     def _handle_sigterm(self, signum, frame):
         logging.info("action: handle_sigterm | result: success")
         self._shutdown_server()
 
+    # _shutdown_server cierra el socket del servidor y todos los sockets de clientes conectados
     def _shutdown_server(self):
         if self._shutdown:
             return
@@ -46,14 +48,8 @@ class Server:
             except Exception as e:
                 logging.error(f"action: close_client_socket | result: fail | error: {e}")
 
+    # run acepta conexiones entrantes y maneja cada conexión de forma secuencial
     def run(self):
-        """
-        Dummy Server loop
-
-        Server that accept a new connections and establishes a
-        communication with a client. After client with communucation
-        finishes, servers starts to accept new connections again
-        """
         while not self._shutdown:
             try:
                 client_sock = self.__accept_new_connection()
@@ -63,13 +59,8 @@ class Server:
                 logging.error(f"action: run | result: fail | error: {e}")
                 break
 
+    # __handle_client_connection maneja la conexión de un cliente, recibe el mensaje y lo procesa
     def __handle_client_connection(self, client_sock):
-        """
-        Read message from a specific client socket and closes the socket
-
-        If a problem arises in the communication with the client, the
-        client socket will also be closed
-        """
         self._client_sockets.append(client_sock)
         try:
             self._receive_message(client_sock)
@@ -81,6 +72,7 @@ class Server:
             if client_sock in self._client_sockets:
                 self._client_sockets.remove(client_sock)
 
+    # _receive_message recibe el mensaje del cliente, lo deserializa y almacena la apuesta
     def _receive_message(self, client_sock):
         try:
             data = b""
@@ -111,20 +103,14 @@ class Server:
             except:
                 pass
 
+    # __accept_new_connection acepta una nueva conexión entrante, devuelve el socket del cliente
     def __accept_new_connection(self):
-        """
-        Accept new connections
-
-        Function blocks until a connection to a client is made.
-        Then connection created is printed and returned
-        """
-
-        # Connection arrived
         logging.info('action: accept_connections | result: in_progress')
         c, addr = self._server_socket.accept()
         logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
         return c
 
+    # _handle_bet_batch procesa un lote de apuestas, las almacena y responde al cliente
     def _handle_bet_batch(self, client_sock, decoded):
         try:
             raw_bets = deserialize_batch(decoded)
@@ -143,10 +129,11 @@ class Server:
             logging.info(f"action: apuesta_recibida | result: fail | error: {e}")
             write_all(client_sock, b"ER\n")
 
+    # _normalize_agency normaliza el identificador de la agencia dejando solo dígitos. EJ: "agencia-01" -> "01", "client1" -> "1"
     def _normalize_agency(self, raw):
-        # Deja solo dígitos (e.g., "client1" -> "1", "agencia-02" -> "02")
         return ''.join(ch for ch in str(raw) if ch.isdigit())
     
+    # _handle_end_notification maneja la notificación de fin de apuestas de una agencia, actualiza el conteo y realiza el sorteo si es necesario
     def _handle_end_notification(self, client_sock, message):
         try:
             _, agency = message.split("|", 1)
@@ -162,6 +149,7 @@ class Server:
             logging.error(f"action: handle_end_notification | result: fail | error: {e}")
             write_all(client_sock, b"ER\n")
 
+    # _perform_draw realiza el sorteo, determina los ganadores y los agrupa por agencia
     def _perform_draw(self):
         self._winners_by_agency = {}
 
@@ -173,6 +161,8 @@ class Server:
         self._draw_done = True
         logging.info(f"action: draw_results | result: success | winners_by_agency: {self._winners_by_agency}")
 
+    # _handle_winners_request maneja la solicitud de ganadores de una agencia, responde con la lista de ganadores
+    # o espera si el sorteo no se ha realizado
     def _handle_winners_request(self, client_sock, message):
         try:
             if not self._draw_done:

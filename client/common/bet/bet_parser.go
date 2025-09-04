@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-const maxMessageSize = 8192 // 8kB
-
 type Parser struct {
 	file     *os.File
 	reader   *csv.Reader
@@ -40,7 +38,7 @@ func (p *Parser) Close() error {
 	return p.file.Close()
 }
 
-// Lee el próximo batch válido (por cantidad o tamaño)
+// Lee el próximo batch válido (por cantidad o tamaño). Si no hay más, devuelve io.EOF
 func (p *Parser) NextBatch() ([]Bet, error) {
 	var bets []Bet
 	count := 0
@@ -86,6 +84,7 @@ func (p *Parser) NextBatch() ([]Bet, error) {
 	return bets, nil
 }
 
+// Parsea la respuesta de ganadores, devolviendo un slice de números ganadores, o vacío si no hay
 func ParseWinnerResponse(resp string) []string {
 	resp = strings.TrimSpace(resp)
 	if !strings.HasPrefix(resp, "WINNERS") {
