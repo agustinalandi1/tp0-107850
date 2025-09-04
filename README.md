@@ -245,6 +245,32 @@ La cantidad máxima de apuestas dentro de cada _batch_ debe ser configurable des
 
 Por su parte, el servidor deberá responder con éxito solamente si todas las apuestas del _batch_ fueron procesadas correctamente.
 
+#### Solución
+
+En este ejercicio se extiende el protocolo de comunicación desarrollado en el Ejercicio 5 para permitir el envío de apuestas en batch por parte de cada cliente. En lugar de enviar apuestas individuales una por una, ahora cada cliente lee un archivo CSV que contiene todas sus apuestas (por ejemplo, agency-1.csv) y las agrupa en batches de tamaño configurable. 
+
+Este tamaño máximo por batch (batch.maxAmount) se especifica en el archivo config.yaml de cada cliente, y se utiliza tanto para limitar la cantidad de apuestas por mensaje como para controlar que el tamaño total del mensaje no supere los 8 KiB. Si no se especifica el tamaño, se usa un valor por defecto conservador.
+
+Cada batch es serializado usando el mismo esquema  de longitud|valor. A diferencia del Ejercicio 5, donde se enviaba una única apuesta por mensaje, ahora se agrupan múltiples apuestas en un mismo mensaje con un header inicial que indica la cantidad total de apuestas del batch. El formato completo es count|N|len1|campo1|len2|campo2|...|len6N|campo6N\n, es decir, primero se indica la cantidad de apuestas (count|N), seguido por los campos serializados de todas las apuestas del batch. El mensaje termina con un salto de línea (\n) que actúa como delimitador para el servidor.
+
+- Client 
+
+Desde el lado del cliente, una vez que se construye cada batch, se envía al servidor a través de un socket TCP. El cliente espera una respuesta del servidor que puede ser "OK" si todas las apuestas fueron procesadas correctamente, o "ER" si hubo algún error en la deserialización. En caso de error, el cliente lo loguea y continúa con el siguiente batch. Para evitar pérdidas por errores transitorios, el envío se realiza con reintentos: si no se recibe ACK, el cliente intenta reenviar el mismo batch hasta tres veces antes de abortar.
+
+- Server
+
+Desde el lado del servidor, se espera una conexión entrante, se recibe el mensaje hasta \n, y se deserializa con deserialize_batch(...). Si el mensaje cumple con el formato y todos los campos tienen las longitudes correctas, se construyen los objetos Bet(...) y se almacenan con store_bets(...). En caso de éxito, se responde "OK" al cliente y se loguea el evento con la cantidad de apuestas recibidas. Si hay error, se responde "ER" y se loguea con información útil para debugging (cantidad de apuestas detectadas y descripción del error).
+
+- Ejecución
+
+Los archivos CSV con las apuestas deben estar ubicados en el directorio .data, y tener el nombre agency-{ID}.csv, donde {ID} corresponde al identificador del cliente. Para su correcto funcionamiento se debe descomprimir el archivo .zip que se encuentra en .data en el mismo directorio, antes de hacer docker-compose-up.
+
+```bash
+./generar-compose.sh <archivo_de_salida.yaml> <cantidad de clientes>
+unzip archivo.zip -d ./data
+make docker-compose-up
+```
+
 ### Ejercicio N°7:
 
 Modificar los clientes para que notifiquen al servidor al finalizar con el envío de todas las apuestas y así proceder con el sorteo.

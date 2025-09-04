@@ -38,7 +38,7 @@ func (p *Parser) Close() error {
 	return p.file.Close()
 }
 
-// Lee el próximo batch válido (por cantidad o tamaño)
+// Lee el próximo batch válido (por cantidad o tamaño). Si no hay más, devuelve io.EOF
 func (p *Parser) NextBatch() ([]Bet, error) {
 	var bets []Bet
 	count := 0

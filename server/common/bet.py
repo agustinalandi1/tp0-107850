@@ -1,8 +1,12 @@
+FIELDS_PER_BET = 6
+BATCH_PREFIX = "count"
+
+
 # deserialize_bet deserializa los datos de una apuesta, devolviendo los campos individuales
 def deserialize_bet(data: str):
     fields = []
     i = 0
-    for _ in range(6):
+    for _ in range(FIELDS_PER_BET):
         sep = data.find('|', i)
         if sep == -1:
             raise ValueError("invalid format: missing |")
@@ -21,7 +25,7 @@ def deserialize_bet(data: str):
         fields.append(value)
         i += length
 
-        if len(fields) < 6:
+        if len(fields) < FIELDS_PER_BET:
             if i >= len(data) or data[i] != '|':
                 raise ValueError("invalid format: expected separator")
             i += 1
@@ -34,7 +38,7 @@ def deserialize_bet(data: str):
 def deserialize_batch(data: str) -> list:
     
     parts = data.strip().split("|")
-    if len(parts) < 2 or parts[0] != "count":
+    if len(parts) < 2 or parts[0] != BATCH_PREFIX:
         raise ValueError("invalid format: missing count header")
 
     try:
@@ -43,10 +47,10 @@ def deserialize_batch(data: str) -> list:
         raise ValueError("invalid count value")
 
     bets = []
-    i = 2
+    i = 2 # indice después del "count|N"
     while len(bets) < count:
         fields = []
-        for _ in range(6):
+        for _ in range(FIELDS_PER_BET):
             if i + 1 >= len(parts):
                 raise ValueError("invalid format: incomplete field")
             try:
