@@ -102,12 +102,7 @@ Comandos:
 
 ```bash
 chmod +x generar-compose.sh
-
 ./generar-compose.sh docker-compose-dev.yaml 3
-
-cat docker-compose-dev.yaml
-
-docker compose -f docker-compose-dev.yaml up --build
 ```
 
 ### Ejercicio N°2:
