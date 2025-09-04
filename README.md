@@ -152,6 +152,21 @@ chmod +x validar-echo-server.sh
 ### Ejercicio N°4:
 Modificar servidor y cliente para que ambos sistemas terminen de forma _graceful_ al recibir la signal SIGTERM. Terminar la aplicación de forma _graceful_ implica que todos los _file descriptors_ (entre los que se encuentran archivos, sockets, threads y procesos) deben cerrarse correctamente antes que el thread de la aplicación principal muera. Loguear mensajes en el cierre de cada recurso (hint: Verificar que hace el flag `-t` utilizado en el comando `docker compose down`).
 
+#### Solución
+
+Del lado del cliente, armé un canal de señales que recibe SIGTERM. En StartClientLoop, antes de conectarse, el cliente mira si entró una señal. Si llega una señal, cierra el socket en caso de estar abierto y escribe los logs de cierre y retorna, dejando que el programa termine por cuenta propia. En caso contrario, sigue con la conexión, envío y lectura como siempre.
+
+En el servidor, cuando llega SIGTERM, el handler llama a _shutdown_server(), que baja primero el socket de escucha y después va cerrando los sockets de clientes, dejando trazas en el log de cada paso. Al quedar cerrado el socket de escucha, el accept() deja de esperar conexiones y el loop termina solo.
+
+Esto permite que, al hacer docker compose down -t <segundos>, Docker mande SIGTERM y ambos procesos tengan ese tiempo para apagar recursos y salir en forma prolija.
+
+Comandos:
+
+```bash
+make docker-compose-up
+docker compose -f docker-compose-dev.yaml down -t 5
+```
+
 ## Parte 2: Repaso de Comunicaciones
 
 Las secciones de repaso del trabajo práctico plantean un caso de uso denominado **Lotería Nacional**. Para la resolución de las mismas deberá utilizarse como base el código fuente provisto en la primera parte, con las modificaciones agregadas en el ejercicio 4.
