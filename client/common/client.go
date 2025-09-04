@@ -15,6 +15,13 @@ import (
 
 var log = logging.MustGetLogger("log")
 
+const (
+	MaxRetries            = 3                      // reintentos por batch
+	RetryConnectDelay     = 1 * time.Second        // espera tras fallo de connect
+	RetryIOErrorDelay     = 500 * time.Millisecond // espera tras fallo de send/ack
+	DefaultBatchMaxAmount = 15                     // fallback de tamaño de batch
+)
+
 // ClientConfig Configuration used by the client
 type ClientConfig struct {
 	ID            string
@@ -27,9 +34,7 @@ type ClientConfig struct {
 // Client Entity that encapsulates how
 type Client struct {
 	config ClientConfig
-	conn net.Conn
-	terminate bool
-	signalChan chan os.Signal
+	conn   net.Conn
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -37,20 +42,8 @@ type Client struct {
 func NewClient(config ClientConfig) *Client {
 	client := &Client{
 		config: config,
-		signalChan: make(chan os.Signal, 1),
 	}
-	signal.Notify(client.signalChan, syscall.SIGTERM)
-	go client.handleSigterm()
 	return client
-}
-
-func (c *Client) handleSigterm() {
-	<-c.signalChan
-	log.Infof("action: signal_received | result: success | client_id: %v", c.config.ID)
-	c.terminate = true
-	c.closeClientSocket()
-	log.Infof("action: shutdown | result: success | client_id: %v", c.config.ID)
-	os.Exit(0)
 }
 
 // CreateClientSocket Initializes client socket. In case of
@@ -79,15 +72,14 @@ func (c *Client) closeClientSocket() {
 	}
 }
 
-// sendBatchWithRetry intenta enviar un batch de apuestas con reintentos
+// sendBatchWithRetry sends a batch message with retries on failure
 func (client *Client) sendBatchWithRetry(batchMessage string) bool {
-	const MAX_RETRIES = 3
 
-	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
+	for attempt := 1; attempt <= MaxRetries; attempt++ {
 		err := client.createClientSocket()
 		if err != nil {
 			log.Errorf("action: connect_attempt | result: fail | attempt: %d | error: %v", attempt, err)
-			time.Sleep(1 * time.Second)
+			time.Sleep(RetryConnectDelay)
 			continue
 		}
 
@@ -95,7 +87,7 @@ func (client *Client) sendBatchWithRetry(batchMessage string) bool {
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | attempt: %d | error: %v", attempt, err)
 			client.closeClientSocket()
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
 
@@ -104,25 +96,19 @@ func (client *Client) sendBatchWithRetry(batchMessage string) bool {
 
 		if err != nil {
 			log.Errorf("action: receive_ack | result: fail | attempt: %d | error: %v", attempt, err)
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
-
 		return true
 	}
-
 	return false
 }
 
+// sendBatchesFromParser reads batches from the parser and sends them, logging the results
 func (c *Client) sendBatchesFromParser(parser *bet.Parser) {
 	batchIndex := 0
 
 	for {
-		if c.terminate {
-			log.Infof("action: loop_terminated | result: by_signal | client_id: %v", c.config.ID)
-			break
-		}
-
 		batch, err := parser.NextBatch()
 		if err == io.EOF {
 			break
@@ -142,20 +128,21 @@ func (c *Client) sendBatchesFromParser(parser *bet.Parser) {
 			log.Errorf("action: batch_enviado | result: fail | client_id: %v | index: %d | size: %d",
 				c.config.ID, batchIndex, len(message))
 		}
-
 		batchIndex++
 		time.Sleep(c.config.LoopPeriod)
 	}
-
 	log.Infof("action: total_batches_sent | result: success | count: %d | client_id: %v", batchIndex, c.config.ID)
 }
 
 // StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
+	signalsChannel := make(chan os.Signal, 1)
+	signal.Notify(signalsChannel, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signalsChannel)
 
 	maxBatchSize := c.config.BatchMaxAmount
 	if maxBatchSize <= 0 {
-		maxBatchSize = 15 // valor por defecto conservador
+		maxBatchSize = DefaultBatchMaxAmount
 	}
 
 	parser, err := bet.NewParser(c.config.ID, maxBatchSize)
@@ -166,9 +153,17 @@ func (c *Client) StartClientLoop() {
 	defer parser.Close()
 
 	log.Infof("action: parser_init | result: success | client_id: %v", c.config.ID)
-	
-	c.sendBatchesFromParser(parser)
+
+	select {
+	case <-signalsChannel:
+		c.closeClientSocket()
+		_ = parser.Close()
+		log.Infof("action: client_shutdown | result: success | client_id: %v", c.config.ID)
+		return
+
+	default:
+		c.sendBatchesFromParser(parser)
+	}
 
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }
-

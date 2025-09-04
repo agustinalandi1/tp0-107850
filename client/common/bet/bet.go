@@ -10,6 +10,7 @@ import (
 )
 
 var log = logging.MustGetLogger("log")
+const maxMessageSize = 8192 // 8kB
 
 type Bet struct {
 	Nombre     string
@@ -113,8 +114,8 @@ func BuildBatchMessages(agencyID string, maxAmount int) ([]string, error) {
 
 	for i, batch := range rawBatches {
 		serialized := SerializeBatch(batch)
-		
-		if len(serialized) > 8192 {
+
+		if len(serialized) > maxMessageSize {
 			fmt.Printf("WARNING: batch %d skipped (size %d > 8kB)\n", i, len(serialized))
 			continue
 		}
