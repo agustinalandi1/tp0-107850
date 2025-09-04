@@ -25,9 +25,7 @@ type ClientConfig struct {
 // Client Entity that encapsulates how
 type Client struct {
 	config ClientConfig
-	conn net.Conn
-	terminate bool
-	signalChan chan os.Signal
+	conn   net.Conn
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -35,20 +33,8 @@ type Client struct {
 func NewClient(config ClientConfig) *Client {
 	client := &Client{
 		config: config,
-		signalChan: make(chan os.Signal, 1),
 	}
-	signal.Notify(client.signalChan, syscall.SIGTERM)
-	go client.handleSigterm()
 	return client
-}
-
-func (c *Client) handleSigterm() {
-	<-c.signalChan
-	log.Infof("action: signal_received | result: success | client_id: %v", c.config.ID)
-	c.terminate = true
-	c.closeClientSocket()
-	log.Infof("action: shutdown | result: success | client_id: %v", c.config.ID)
-	os.Exit(0)
 }
 
 // CreateClientSocket Initializes client socket. In case of
@@ -79,47 +65,60 @@ func (c *Client) closeClientSocket() {
 // StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
 
+	// channel de señales del SO (buffer 1 para no perder la señal)
+	signalsChannel := make(chan os.Signal, 1)
+	signal.Notify(signalsChannel, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signalsChannel) // deja de recibir señales cuando sale
+
 	// There is an autoincremental msgID to identify every message sent
 	// Messages if the message amount threshold has not been surpassed
 	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
 
-		if c.terminate {
-			log.Infof("action: loop_terminated | result: by_signal | client_id: %v", c.config.ID)
-			break
-		}
+		// Salida graceful si llega una señal antes de abrir
+		select {
+		case <-signalsChannel:
+			// Cierro lo que haya abierto y termino ordenadamente
+			if c.conn != nil {
+				_ = c.conn.Close()
+				log.Infof("action: close_socket | result: success | client_id: %v", c.config.ID)
+			}
+			log.Infof("action: client_shutdown | result: success | client_id: %v", c.config.ID)
+			return
+		default:
 
-		// Create the connection the server in every loop iteration. Send an
-		err := c.createClientSocket()
-		if err != nil {
-			time.Sleep(1 * time.Second)
-			continue
-		}
+			// Create the connection the server in every loop iteration. Send an
+			err := c.createClientSocket()
+			if err != nil {
+				time.Sleep(1 * time.Second)
+				continue
+			}
 
-		msg := fmt.Sprintf("[CLIENT %v] Message N°%v\n", c.config.ID, msgID)
-		_, err = c.conn.Write([]byte(msg))
-		if err != nil {
-			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
+			msg := fmt.Sprintf("[CLIENT %v] Message N°%v\n", c.config.ID, msgID)
+			_, err = c.conn.Write([]byte(msg))
+			if err != nil {
+				log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
+				c.closeClientSocket()
+				continue
+			}
+
+			// Leer la respuesta
+			msgReader := bufio.NewReader(c.conn)
+			reponse, err := msgReader.ReadString('\n')
 			c.closeClientSocket()
-			continue
-		}
 
-		// Leer la respuesta
-		msgReader := bufio.NewReader(c.conn)
-		reponse, err := msgReader.ReadString('\n')
-		c.closeClientSocket()
+			if err != nil {
+				log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
+					c.config.ID,
+					err,
+				)
+				continue
+			}
 
-		if err != nil {
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
+			log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
 				c.config.ID,
-				err,
+				reponse,
 			)
-			continue
 		}
-
-		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
-			c.config.ID,
-			reponse,
-		)
 
 		// Wait a time between sending one message and the next one
 		time.Sleep(c.config.LoopPeriod)

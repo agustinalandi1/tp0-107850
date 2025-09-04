@@ -95,24 +95,39 @@ En el archivo de Docker Compose de salida se pueden definir volúmenes, variable
 
 #### Solución
 
-El script mi-generador.py genera un archivo docker compose dinámico que define un servidor y una cantidad de clientes dependeindo del número pasado por línea de comandos.
-Construye el contenido directamente como un string con formato YAML, incluyendo primero el servicio server y luego agregando los servicios de los clientes junto con sus variables. También incorpora una testing_net con una subred específica. Antes de generar el archivo, valida que los argumentos sean correctos.
+Se utiliza un script Bash (generar-compose.sh) como punto de entrada, que delega la generación a un script Python (mi-generador.py). El script mi-generador.py genera un archivo docker compose dinámico que define un servidor y una cantidad de clientes dependeindo del número pasado por línea de comandos.
+
+Todos los contenedores están conectados mediante una red virtual Docker (testing_net) definida con ipam. Esto asegura que se comuniquen internamente sin exponer puertos hacia el host, lo que es fundamental para pruebas seguras y aisladas. Además, gracias al uso de Compose, podemos levantar o bajar todo el sistema con un solo comando.
 
 Comandos:
 
 ```bash
 chmod +x generar-compose.sh
-
 ./generar-compose.sh docker-compose-dev.yaml 3
-
-cat docker-compose-dev.yaml
-
-docker compose -f docker-compose-dev.yaml up --build
 ```
 
 ### Ejercicio N°2:
 Modificar el cliente y el servidor para lograr que realizar cambios en el archivo de configuración no requiera reconstruír las imágenes de Docker para que los mismos sean efectivos. La configuración a través del archivo correspondiente (`config.ini` y `config.yaml`, dependiendo de la aplicación) debe ser inyectada en el container y persistida por fuera de la imagen (hint: `docker volumes`).
 
+#### Solución
+
+Se modificó el archivo mi-generador.py para agregar volúmenes en la definición de cada servicio en docker-compose. Estos volumenes montan archivos de configuración directamente desde el host.
+
+- Para el server: 
+```bash
+volumes:
+  - ./server/config.ini:/config.ini
+```
+Esto permite que el script main.py lea directamente desde /config.ini.
+
+- Para cada cliente:
+```bash
+volumes:
+  - ./client/config.yaml:/config.yaml
+```
+Cada cliente accede al mismo archivo /config.yaml para su configuración.
+
+Se genera el archivo docker-compose de la misma manera que en el Ejercicio 1.
 
 ### Ejercicio N°3:
 Crear un script de bash `validar-echo-server.sh` que permita verificar el correcto funcionamiento del servidor utilizando el comando `netcat` para interactuar con el mismo. Dado que el servidor es un echo server, se debe enviar un mensaje al servidor y esperar recibir el mismo mensaje enviado.
@@ -121,6 +136,18 @@ En caso de que la validación sea exitosa imprimir: `action: test_echo_server | 
 
 El script deberá ubicarse en la raíz del proyecto. Netcat no debe ser instalado en la máquina _host_ y no se pueden exponer puertos del servidor para realizar la comunicación (hint: `docker network`). `
 
+#### Solución
+
+validar-echo-server.sh crea un contenedor temporal basado en la imagen liviana alpine:latest, conectado a la misma red Docker que el servidor. Dentro de este contenedor se ejecuta el comando netcat (nc), que permite abrir una conexión TCP hacia el servidor en el puerto configurado (12345) y enviar un mensaje de prueba. 
+
+La respuesta del servidor se captura en la variable response, se limpian los saltos de línea y finalmente se compara con el mensaje original. Si ambas cadenas coinciden, el script imprime por consola action: test_echo_server | result: success, y en caso contrario, muestra action: test_echo_server | result: fail.
+
+Ejecución:
+
+```bash
+chmod +x validar-echo-server.sh
+./validar-echo-server.sh 
+```
 
 ### Ejercicio N°4:
 Modificar servidor y cliente para que ambos sistemas terminen de forma _graceful_ al recibir la signal SIGTERM. Terminar la aplicación de forma _graceful_ implica que todos los _file descriptors_ (entre los que se encuentran archivos, sockets, threads y procesos) deben cerrarse correctamente antes que el thread de la aplicación principal muera. Loguear mensajes en el cierre de cada recurso (hint: Verificar que hace el flag `-t` utilizado en el comando `docker compose down`).
