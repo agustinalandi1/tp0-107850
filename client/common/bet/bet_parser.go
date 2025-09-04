@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-const maxMessageSize = 8192 // 8kB
-
 type Parser struct {
 	file     *os.File
 	reader   *csv.Reader
