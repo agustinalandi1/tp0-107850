@@ -95,8 +95,8 @@ En el archivo de Docker Compose de salida se pueden definir volúmenes, variable
 
 #### Solución
 
-El script mi-generador.py genera un archivo docker compose dinámico que define un servidor y una cantidad de clientes dependeindo del número pasado por línea de comandos.
-Construye el contenido directamente como un string con formato YAML, incluyendo primero el servicio server y luego agregando los servicios de los clientes junto con sus variables. También incorpora una testing_net con una subred específica. Antes de generar el archivo, valida que los argumentos sean correctos.
+Se utiliza un script Bash (generar-compose.sh) como punto de entrada, que delega la generación a un script Python (mi-generador.py). El script mi-generador.py genera un archivo docker compose dinámico que define un servidor y una cantidad de clientes dependeindo del número pasado por línea de comandos.
+Todos los contenedores están conectados mediante una red virtual Docker (testing_net) definida con ipam. Esto asegura que se comuniquen internamente sin exponer puertos hacia el host, lo que es fundamental para pruebas seguras y aisladas. Además, gracias al uso de Compose, podemos levantar o bajar todo el sistema con un solo comando.
 
 Comandos:
 
