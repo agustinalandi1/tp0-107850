@@ -21,10 +21,10 @@ func serializeBet(nombre, apellido, dni, nacimiento, numero, agencia string) str
 			msg += "|" // separador entre campos, no al final
 		}
 	}
-
 	return msg + "\n"
 }
 
+// BuildBetMessage construye el mensaje de la apuesta leyendo las variables de entorno
 func BuildBetMessage(agency string) (msg string, dni string, numero string) {
 	nombre := strings.TrimSpace(os.Getenv("NOMBRE"))
 	apellido := strings.TrimSpace(os.Getenv("APELLIDO"))

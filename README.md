@@ -95,24 +95,39 @@ En el archivo de Docker Compose de salida se pueden definir volúmenes, variable
 
 #### Solución
 
-El script mi-generador.py genera un archivo docker compose dinámico que define un servidor y una cantidad de clientes dependeindo del número pasado por línea de comandos.
-Construye el contenido directamente como un string con formato YAML, incluyendo primero el servicio server y luego agregando los servicios de los clientes junto con sus variables. También incorpora una testing_net con una subred específica. Antes de generar el archivo, valida que los argumentos sean correctos.
+Se utiliza un script Bash (generar-compose.sh) como punto de entrada, que delega la generación a un script Python (mi-generador.py). El script mi-generador.py genera un archivo docker compose dinámico que define un servidor y una cantidad de clientes dependeindo del número pasado por línea de comandos.
+
+Todos los contenedores están conectados mediante una red virtual Docker (testing_net) definida con ipam. Esto asegura que se comuniquen internamente sin exponer puertos hacia el host, lo que es fundamental para pruebas seguras y aisladas. Además, gracias al uso de Compose, podemos levantar o bajar todo el sistema con un solo comando.
 
 Comandos:
 
 ```bash
 chmod +x generar-compose.sh
-
 ./generar-compose.sh docker-compose-dev.yaml 3
-
-cat docker-compose-dev.yaml
-
-docker compose -f docker-compose-dev.yaml up --build
 ```
 
 ### Ejercicio N°2:
 Modificar el cliente y el servidor para lograr que realizar cambios en el archivo de configuración no requiera reconstruír las imágenes de Docker para que los mismos sean efectivos. La configuración a través del archivo correspondiente (`config.ini` y `config.yaml`, dependiendo de la aplicación) debe ser inyectada en el container y persistida por fuera de la imagen (hint: `docker volumes`).
 
+#### Solución
+
+Se modificó el archivo mi-generador.py para agregar volúmenes en la definición de cada servicio en docker-compose. Estos volumenes montan archivos de configuración directamente desde el host.
+
+- Para el server: 
+```bash
+volumes:
+  - ./server/config.ini:/config.ini
+```
+Esto permite que el script main.py lea directamente desde /config.ini.
+
+- Para cada cliente:
+```bash
+volumes:
+  - ./client/config.yaml:/config.yaml
+```
+Cada cliente accede al mismo archivo /config.yaml para su configuración.
+
+Se genera el archivo docker-compose de la misma manera que en el Ejercicio 1.
 
 ### Ejercicio N°3:
 Crear un script de bash `validar-echo-server.sh` que permita verificar el correcto funcionamiento del servidor utilizando el comando `netcat` para interactuar con el mismo. Dado que el servidor es un echo server, se debe enviar un mensaje al servidor y esperar recibir el mismo mensaje enviado.
@@ -121,9 +136,36 @@ En caso de que la validación sea exitosa imprimir: `action: test_echo_server | 
 
 El script deberá ubicarse en la raíz del proyecto. Netcat no debe ser instalado en la máquina _host_ y no se pueden exponer puertos del servidor para realizar la comunicación (hint: `docker network`). `
 
+#### Solución
+
+validar-echo-server.sh crea un contenedor temporal basado en la imagen liviana alpine:latest, conectado a la misma red Docker que el servidor. Dentro de este contenedor se ejecuta el comando netcat (nc), que permite abrir una conexión TCP hacia el servidor en el puerto configurado (12345) y enviar un mensaje de prueba. 
+
+La respuesta del servidor se captura en la variable response, se limpian los saltos de línea y finalmente se compara con el mensaje original. Si ambas cadenas coinciden, el script imprime por consola action: test_echo_server | result: success, y en caso contrario, muestra action: test_echo_server | result: fail.
+
+Ejecución:
+
+```bash
+chmod +x validar-echo-server.sh
+./validar-echo-server.sh 
+```
 
 ### Ejercicio N°4:
 Modificar servidor y cliente para que ambos sistemas terminen de forma _graceful_ al recibir la signal SIGTERM. Terminar la aplicación de forma _graceful_ implica que todos los _file descriptors_ (entre los que se encuentran archivos, sockets, threads y procesos) deben cerrarse correctamente antes que el thread de la aplicación principal muera. Loguear mensajes en el cierre de cada recurso (hint: Verificar que hace el flag `-t` utilizado en el comando `docker compose down`).
+
+#### Solución
+
+Del lado del cliente, armé un canal de señales que recibe SIGTERM. En StartClientLoop, antes de conectarse, el cliente mira si entró una señal. Si llega una señal, cierra el socket en caso de estar abierto y escribe los logs de cierre y retorna, dejando que el programa termine por cuenta propia. En caso contrario, sigue con la conexión, envío y lectura como siempre.
+
+En el servidor, cuando llega SIGTERM, el handler llama a _shutdown_server(), que baja primero el socket de escucha y después va cerrando los sockets de clientes, dejando trazas en el log de cada paso. Al quedar cerrado el socket de escucha, el accept() deja de esperar conexiones y el loop termina solo.
+
+Esto permite que, al hacer docker compose down -t <segundos>, Docker mande SIGTERM y ambos procesos tengan ese tiempo para apagar recursos y salir en forma prolija.
+
+Comandos:
+
+```bash
+make docker-compose-up
+docker compose -f docker-compose-dev.yaml down -t 5
+```
 
 ## Parte 2: Repaso de Comunicaciones
 
@@ -149,6 +191,45 @@ Se deberá implementar un módulo de comunicación entre el cliente y el servido
 * Serialización de los datos.
 * Correcta separación de responsabilidades entre modelo de dominio y capa de comunicación.
 * Correcto empleo de sockets, incluyendo manejo de errores y evitando los fenómenos conocidos como [_short read y short write_](https://cs61.seas.harvard.edu/site/2018/FileDescriptors/).
+
+#### Solución
+
+Se implementó el caso “Lotería Nacional” creando un cliente que actúa como agencia y un servidor que funciona como central. El cliente toma los datos de la apuesta desde variables de entorno y los envía al servidor usando un protocolo propio de texto con longitudes por campo. El servidor deserializa, construye un Bet y persiste con store_bets(...). Para confirmar recepción, el servidor responde un ACK “OK”; el cliente lo espera y reintenta si algo falla. Se cuidó explícitamente evitar short write y short read, y se mantuvo una separación clara entre dominio y comunicación.
+
+- Protocolo
+
+El payload del cliente es una línea de texto terminada en \n, compuesta por seis campos (nombre, apellido, DNI, nacimiento, número, agencia) con el patrón longitud|valor, separados entre sí por |. La longitud anuncia cuántos bytes del valor siguen, y el separador | estructura el mensaje. En el servidor, deserialize_bet(...) valida formato, longitudes y separadores antes de entregar los seis strings.
+
+Por ejemplo: 7|Agustina|5|Landi|8|40000000|10|2014-03-17|4|7574|1|3\n. 
+
+Resolví con un esquema longitud|valor ya que si un campo incluye el carácter | u otros símbolos, el parseo no se rompe porque el receptor lee exactamente length bytes para cada valor. De esta forma, no hay que “adivinar” dónde termina cada campo ni hacer escapes especiales; la longitud declara cuánto consumir y el cursor avanza sin incertidumbre. Además, el framing por línea (\n) le da al servidor una señal inequívoca de fin de mensaje: con el salto de línea sabe cuándo dejar de leer, y con length|valor sabe cuánto leer de cada campo. E
+
+Sin embargo, podria haber tneido en cuenta otras consideraciones. Por un lado, al usar framing por \n no deben aparecer saltos de línea dentro de los campos. Además, un cliente malicioso podría intentar enviar líneas excesivamente largas; esto se resuelve cortando por tamaño máximo (por ejemplo, 8 KiB) y rechazar el mensaje, tanto para proteger recursos como para prevenir DoS triviales.
+
+- Client
+
+El cliente arma el mensaje con bet.BuildBetMessage(agencyID), que lee las variables de entorno y serializa con el formato de longitudes. Para enviar de forma confiable, la capa communication.SendMessage(conn, message) itera Write hasta despachar el buffer completo, eliminando el riesgo de short write. Luego, communication.ReceiveAck(conn) usa io.ReadFull para leer exactamente dos bytes y validar OK, evitando short read. 
+
+El flujo de reintentos está encapsulado en sendBetWithRetry(...): hasta tres intentos, creando un socket nuevo por intento, enviando el payload y esperando el OK; si el intento falla (conexión, envío o ack), se cierra el socket, se loguea el problema y se reintenta tras una breve espera. 
+
+Cuando la transacción completa es exitosa, el cliente emite el log exigido por la consigna: action: apuesta_enviada | result: success | dni: <DNI> | numero: <NUMERO>; en caso de falla tras agotar intentos, se registra result: fail con el DNI y número correspondientes. 
+
+- Server
+
+El servidor acepta conexiones, recibe una línea completa (lee en un bucle hasta \n), y deserializa con deserialize_bet(...). Con los campos obtenidos crea un Bet y persiste con store_bets([bet]). Al persistir, emite el log requerido: action: apuesta_almacenada | result: success | dni: <DNI> | numero: <NUMERO>. 
+
+Para confirmar al cliente, responde con OK usando write_all(...), que repite envíos hasta completar, evitando short write al emitir el ACK. Si la conexión se corta o el formato no es válido, se registra process_bet | result: fail | error: ... y la conexión se cierra. 
+
+- Separación de Responsabilidades
+
+Los módulos bet se ocupan del dominio y la serialización (construir y parsear el mensaje de apuesta); los módulos communication se limitan a I/O confiable sobre sockets (escritura total y lectura exacta del ack); el cliente orquesta control de flujo, reintentos y logging; y el servidor se enfoca en aceptar, deserializar y persistir.
+
+- Comandos
+
+```bash
+./generar-compose.sh <archivo_de_salida.yaml> <cantidad de clientes>
+make docker-compose-up
+```
 
 
 ### Ejercicio N°6:

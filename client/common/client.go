@@ -25,9 +25,7 @@ type ClientConfig struct {
 // Client Entity that encapsulates how
 type Client struct {
 	config ClientConfig
-	conn net.Conn
-	terminate bool
-	signalChan chan os.Signal
+	conn   net.Conn
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -35,20 +33,8 @@ type Client struct {
 func NewClient(config ClientConfig) *Client {
 	client := &Client{
 		config: config,
-		signalChan: make(chan os.Signal, 1),
 	}
-	signal.Notify(client.signalChan, syscall.SIGTERM)
-	go client.handleSigterm()
 	return client
-}
-
-func (c *Client) handleSigterm() {
-	<-c.signalChan
-	log.Infof("action: signal_received | result: success | client_id: %v", c.config.ID)
-	c.terminate = true
-	c.closeClientSocket()
-	log.Infof("action: shutdown | result: success | client_id: %v", c.config.ID)
-	os.Exit(0)
 }
 
 // CreateClientSocket Initializes client socket. In case of
@@ -105,41 +91,44 @@ func (client *Client) sendBetWithRetry(message, dni, numero string) bool {
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
-
 		return true
 	}
-
 	return false
 }
 
 // StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
 
-	// There is an autoincremental msgID to identify every message sent
-	// Messages if the message amount threshold has not been surpassed
+	signalsChannel := make(chan os.Signal, 1)
+	signal.Notify(signalsChannel, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signalsChannel)
+
 	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
+		select {
+		case <-signalsChannel:
+			if c.conn != nil {
+				_ = c.conn.Close()
+				log.Infof("action: close_socket | result: success | client_id: %v", c.config.ID)
+			}
+			log.Infof("action: client_shutdown | result: success | client_id: %v", c.config.ID)
+			return
 
-		if c.terminate {
-			log.Infof("action: loop_terminated | result: by_signal | client_id: %v", c.config.ID)
-			break
+		default:
+			message, dni, numero := bet.BuildBetMessage(c.config.ID)
+			success := c.sendBetWithRetry(message, dni, numero)
+			if success {
+				log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
+					dni,
+					numero,
+				)
+			} else {
+				log.Errorf("action: apuesta_enviada | result: fail | dni: %v | numero: %v",
+					dni,
+					numero,
+				)
+			}
 		}
-
-		message, dni, numero := bet.BuildBetMessage(c.config.ID)
-		success := c.sendBetWithRetry(message, dni, numero)
-		if success {
-			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
-				dni,
-				numero,
-			)
-		} else {
-			log.Errorf("action: apuesta_enviada | result: fail | dni: %v | numero: %v",
-				dni,
-				numero,
-			)
-		}
-
 		time.Sleep(c.config.LoopPeriod)
-
 	}
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }
