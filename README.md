@@ -95,24 +95,39 @@ En el archivo de Docker Compose de salida se pueden definir volúmenes, variable
 
 #### Solución
 
-El script mi-generador.py genera un archivo docker compose dinámico que define un servidor y una cantidad de clientes dependeindo del número pasado por línea de comandos.
-Construye el contenido directamente como un string con formato YAML, incluyendo primero el servicio server y luego agregando los servicios de los clientes junto con sus variables. También incorpora una testing_net con una subred específica. Antes de generar el archivo, valida que los argumentos sean correctos.
+Se utiliza un script Bash (generar-compose.sh) como punto de entrada, que delega la generación a un script Python (mi-generador.py). El script mi-generador.py genera un archivo docker compose dinámico que define un servidor y una cantidad de clientes dependeindo del número pasado por línea de comandos.
+
+Todos los contenedores están conectados mediante una red virtual Docker (testing_net) definida con ipam. Esto asegura que se comuniquen internamente sin exponer puertos hacia el host, lo que es fundamental para pruebas seguras y aisladas. Además, gracias al uso de Compose, podemos levantar o bajar todo el sistema con un solo comando.
 
 Comandos:
 
 ```bash
 chmod +x generar-compose.sh
-
 ./generar-compose.sh docker-compose-dev.yaml 3
-
-cat docker-compose-dev.yaml
-
-docker compose -f docker-compose-dev.yaml up --build
 ```
 
 ### Ejercicio N°2:
 Modificar el cliente y el servidor para lograr que realizar cambios en el archivo de configuración no requiera reconstruír las imágenes de Docker para que los mismos sean efectivos. La configuración a través del archivo correspondiente (`config.ini` y `config.yaml`, dependiendo de la aplicación) debe ser inyectada en el container y persistida por fuera de la imagen (hint: `docker volumes`).
 
+#### Solución
+
+Se modificó el archivo mi-generador.py para agregar volúmenes en la definición de cada servicio en docker-compose. Estos volumenes montan archivos de configuración directamente desde el host.
+
+- Para el server: 
+```bash
+volumes:
+  - ./server/config.ini:/config.ini
+```
+Esto permite que el script main.py lea directamente desde /config.ini.
+
+- Para cada cliente:
+```bash
+volumes:
+  - ./client/config.yaml:/config.yaml
+```
+Cada cliente accede al mismo archivo /config.yaml para su configuración.
+
+Se genera el archivo docker-compose de la misma manera que en el Ejercicio 1.
 
 ### Ejercicio N°3:
 Crear un script de bash `validar-echo-server.sh` que permita verificar el correcto funcionamiento del servidor utilizando el comando `netcat` para interactuar con el mismo. Dado que el servidor es un echo server, se debe enviar un mensaje al servidor y esperar recibir el mismo mensaje enviado.
