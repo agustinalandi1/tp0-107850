@@ -140,13 +140,12 @@ func (c *Client) sendBatchesFromParser(parser *bet.Parser) {
 func (c *Client) notifyEndOfBets() bool {
 	msg := fmt.Sprintf("FIN|%s\n", c.config.ID)
 
-	const MAX_RETRIES = 3
-	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
-		
+	for attempt := 1; attempt <= MaxRetries; attempt++ {
+
 		err := c.createClientSocket()
 		if err != nil {
 			log.Errorf("action: connect | result: fail | error: %v", err)
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
 
@@ -154,7 +153,7 @@ func (c *Client) notifyEndOfBets() bool {
 		if err != nil {
 			log.Errorf("action: notify_end | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			c.closeClientSocket()
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
 
@@ -162,7 +161,7 @@ func (c *Client) notifyEndOfBets() bool {
         c.closeClientSocket() // cierro después de recibir el ACK
 		if err != nil {
              log.Errorf("action: receive_ack_notify_end | result: fail | attempt: %d | error: %v", attempt, err)
-             time.Sleep(500 * time.Millisecond)
+             time.Sleep(RetryIOErrorDelay)
              continue
         }
 		
@@ -176,18 +175,12 @@ func (c *Client) notifyEndOfBets() bool {
 
 // requestWinners solicita los ganadores al servidor, reintentando en caso de fallo
 func (c *Client) requestWinners() {
-	const RETRY_DELAY = 500 * time.Millisecond
 
 	for {
-		if c.terminate {
-			log.Infof("action: consulta_ganadores | result: cancelled | client_id: %v", c.config.ID)
-			return
-		}
-
 		err := c.createClientSocket()
 		if err != nil {
 			log.Errorf("action: connect | result: fail | step: request_winners | error: %v", err)
-			time.Sleep(RETRY_DELAY)
+			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
 
@@ -196,7 +189,7 @@ func (c *Client) requestWinners() {
 		if err != nil {
 			log.Errorf("action: send_winners_request | result: fail | error: %v", err)
 			c.closeClientSocket()
-			time.Sleep(RETRY_DELAY)
+			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
 
@@ -204,20 +197,20 @@ func (c *Client) requestWinners() {
 		c.closeClientSocket()
 		if err != nil {
 			log.Errorf("action: read_winners_response | result: fail | error: %v", err)
-			time.Sleep(RETRY_DELAY)
+			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
 
 		resp = strings.TrimSpace(resp)
 		if resp == "WAIT\n" {
 			log.Infof("action: consulta_ganadores | result: in_progress | client_id: %v", c.config.ID)
-			time.Sleep(RETRY_DELAY)
+			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
 
 		if !strings.HasPrefix(resp, "WINNERS") {
             log.Infof("action: consulta_ganadores | result: in_progress | client_id: %v", c.config.ID)
-            time.Sleep(RETRY_DELAY)
+            time.Sleep(RetryIOErrorDelay)
             continue
         }
 
