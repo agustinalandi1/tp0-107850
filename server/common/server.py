@@ -143,10 +143,14 @@ class Server:
             logging.info(f"action: apuesta_recibida | result: fail | error: {e}")
             write_all(client_sock, b"ER\n")
 
+    def _normalize_agency(self, raw):
+        # Deja solo dígitos (e.g., "client1" -> "1", "agencia-02" -> "02")
+        return ''.join(ch for ch in str(raw) if ch.isdigit())
+    
     def _handle_end_notification(self, client_sock, message):
         try:
-            _, agency = message.split("|")
-            agency = agency.replace("client", "")
+            _, agency = message.split("|", 1)
+            agency = self._normalize_agency(agency)
             self._finished_clients += 1
             logging.info(f"action: end_of_bets | result: success | agency: {agency}")
             write_all(client_sock, b"OK\n")
@@ -163,7 +167,8 @@ class Server:
 
         for bet in load_bets():
             if has_won(bet):
-                self._winners_by_agency.setdefault(str(bet.agency), []).append(bet.document)
+                key = self._normalize_agency(bet.agency)
+                self._winners_by_agency.setdefault(key, []).append(bet.document)
 
         self._draw_done = True
         logging.info(f"action: draw_results | result: success | winners_by_agency: {self._winners_by_agency}")
@@ -174,14 +179,10 @@ class Server:
                 write_all(client_sock, b"WAIT\n")
                 return
 
-            _, agency = message.split("|")
-            agency = agency.replace("client", "")
+            _, agency = message.split("|", 1)
+            agency = self._normalize_agency(agency)
             winners = self._winners_by_agency.get(agency, [])
-            
-            if winners:
-                response = "WINNERS|" + "|".join(winners) + "\n"
-            else:
-                response = "WINNERS\n"
+            response = "WINNERS\n" if not winners else "WINNERS|" + "|".join(winners) + "\n"
             write_all(client_sock, response.encode())
 
             logging.info(f"action: winners_request | result: success | agency: {agency} | winners_count: {len(winners)}")

@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"io"
 	"fmt"
+	"strings"
 
 	"github.com/op/go-logging"
 	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/common/bet"
@@ -223,11 +224,18 @@ func (c *Client) requestWinners() {
 			continue
 		}
 
+		resp = strings.TrimSpace(resp)
 		if resp == "WAIT\n" {
 			log.Infof("action: consulta_ganadores | result: in_progress | client_id: %v", c.config.ID)
 			time.Sleep(RETRY_DELAY)
 			continue
 		}
+
+		if !strings.HasPrefix(resp, "WINNERS") {
+            log.Infof("action: consulta_ganadores | result: in_progress | client_id: %v", c.config.ID)
+            time.Sleep(RETRY_DELAY)
+            continue
+        }
 
 		dnis := bet.ParseWinnerResponse(resp)
 		log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", len(dnis))
