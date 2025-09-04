@@ -76,26 +76,22 @@ func (c *Client) closeClientSocket() {
 
 // sendBatchWithRetry sends a batch message with retries on failure
 func (client *Client) sendBatchWithRetry(batchMessage string) bool {
+	err := client.createClientSocket()
+	if err != nil {
+		log.Errorf("action: connect | result: fail | error: %v", err)
+		return false
+	}
+	defer client.closeClientSocket()
 
 	for attempt := 1; attempt <= MaxRetries; attempt++ {
-		err := client.createClientSocket()
-		if err != nil {
-			log.Errorf("action: connect_attempt | result: fail | attempt: %d | error: %v", attempt, err)
-			time.Sleep(RetryConnectDelay)
-			continue
-		}
-
 		err = communication.SendMessage(client.conn, batchMessage)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | attempt: %d | error: %v", attempt, err)
-			client.closeClientSocket()
 			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
 
 		err = communication.ReceiveAck(client.conn)
-		client.closeClientSocket()
-
 		if err != nil {
 			log.Errorf("action: receive_ack | result: fail | attempt: %d | error: %v", attempt, err)
 			time.Sleep(RetryIOErrorDelay)
