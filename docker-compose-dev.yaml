@@ -6,22 +6,50 @@ services:
     entrypoint: python3 /main.py
     environment:
       - PYTHONUNBUFFERED=1
-      - LOGGING_LEVEL=DEBUG
+      - EXPECTED_CLIENTS=3
     networks:
       - testing_net
-
+    volumes:
+      - ./server/config.ini:/config.ini
   client1:
     container_name: client1
     image: client:latest
     entrypoint: /client
     environment:
       - CLI_ID=1
-      - CLI_LOG_LEVEL=DEBUG
     networks:
       - testing_net
+    volumes:
+      - ./client/config.yaml:/config.yaml
+      - ./.data/agency-1.csv:/data/agency-1.csv
     depends_on:
       - server
-
+  client2:
+    container_name: client2
+    image: client:latest
+    entrypoint: /client
+    environment:
+      - CLI_ID=2
+    networks:
+      - testing_net
+    volumes:
+      - ./client/config.yaml:/config.yaml
+      - ./.data/agency-2.csv:/data/agency-2.csv
+    depends_on:
+      - server
+  client3:
+    container_name: client3
+    image: client:latest
+    entrypoint: /client
+    environment:
+      - CLI_ID=3
+    networks:
+      - testing_net
+    volumes:
+      - ./client/config.yaml:/config.yaml
+      - ./.data/agency-3.csv:/data/agency-3.csv
+    depends_on:
+      - server
 networks:
   testing_net:
     ipam:
