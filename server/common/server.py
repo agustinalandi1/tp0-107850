@@ -1,6 +1,7 @@
 import socket
 import logging
 import signal
+import threading
 from common.communication import read_n, write_all
 from common.bet import deserialize_batch
 from common.utils import Bet, store_bets, load_bets, has_won
@@ -8,7 +9,7 @@ import os
 
 class Server:
     def __init__(self, port, listen_backlog):
-        # Initialize server socket
+
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
@@ -18,7 +19,9 @@ class Server:
         self._expected_clients = int(os.environ.get("EXPECTED_CLIENTS", 5))  # fallback por si no se setea
         self._winners_by_agency = {}
         self._draw_done = False
-        logging.info(f"action: init_server | result: success | expected_clients: {self._expected_clients}")
+        self._bets_lock = threading.Lock()
+        self._draw_lock = threading.Lock()
+        self._client_threads = []
 
         signal.signal(signal.SIGTERM, self._handle_sigterm)
         
@@ -30,46 +33,35 @@ class Server:
         if self._shutdown:
             return
         self._shutdown = True
-
-        logging.info("action: shutdown | result: in_progress")
-
         try:
             self._server_socket.close()
-            logging.info("action: close_server_socket | result: success")
         except Exception as e:
             logging.error(f"action: close_server_socket | result: fail | error: {e}")
-
         for socket in self._client_sockets:
             try:
                 socket.close()
-                logging.info("action: close_client_socket | result: success")
             except Exception as e:
                 logging.error(f"action: close_client_socket | result: fail | error: {e}")
-
+        for t in self._client_threads:
+            t.join()
+            logging.info("action: join_client_thread | result: success")
+    
     def run(self):
-        """
-        Dummy Server loop
-
-        Server that accept a new connections and establishes a
-        communication with a client. After client with communucation
-        finishes, servers starts to accept new connections again
-        """
         while not self._shutdown:
             try:
                 client_sock = self.__accept_new_connection()
                 if client_sock:
-                    self.__handle_client_connection(client_sock)
+                    thread = threading.Thread(
+                        target=self.__handle_client_connection,
+                        args=(client_sock,)
+                    )
+                    thread.start()
+                    self._client_threads.append(thread)
             except OSError as e:
                 logging.error(f"action: run | result: fail | error: {e}")
                 break
 
     def __handle_client_connection(self, client_sock):
-        """
-        Read message from a specific client socket and closes the socket
-
-        If a problem arises in the communication with the client, the
-        client socket will also be closed
-        """
         self._client_sockets.append(client_sock)
         try:
             self._receive_message(client_sock)
@@ -112,15 +104,6 @@ class Server:
                 pass
 
     def __accept_new_connection(self):
-        """
-        Accept new connections
-
-        Function blocks until a connection to a client is made.
-        Then connection created is printed and returned
-        """
-
-        # Connection arrived
-        logging.info('action: accept_connections | result: in_progress')
         c, addr = self._server_socket.accept()
         logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
         return c
@@ -135,7 +118,8 @@ class Server:
                 bet_obj = Bet(agency, first_name, last_name, document, birthdate, number)
                 bet_objects.append(bet_obj)
 
-            store_bets(bet_objects)
+            with self._bets_lock:
+                store_bets(bet_objects)
             logging.info(f"action: apuesta_recibida | result: success | cantidad: {len(bet_objects)}")
             write_all(client_sock, b"OK\n")
 
@@ -144,16 +128,17 @@ class Server:
             write_all(client_sock, b"ER\n")
 
     def _normalize_agency(self, raw):
-        # Deja solo dígitos (e.g., "client1" -> "1", "agencia-02" -> "02")
         return ''.join(ch for ch in str(raw) if ch.isdigit())
     
     def _handle_end_notification(self, client_sock, message):
         try:
             _, agency = message.split("|", 1)
             agency = self._normalize_agency(agency)
-            self._finished_clients += 1
-            logging.info(f"action: end_of_bets | result: success | agency: {agency}")
-            write_all(client_sock, b"OK\n")
+
+            with self._draw_lock:
+                self._finished_clients += 1
+                logging.info(f"action: end_of_bets | result: success | agency: {agency}")
+                write_all(client_sock, b"OK\n")
 
             if self._finished_clients == self._expected_clients and not self._draw_done:
                 self._perform_draw()
@@ -175,16 +160,17 @@ class Server:
 
     def _handle_winners_request(self, client_sock, message):
         try:
-            if not self._draw_done:
-                write_all(client_sock, b"WAIT\n")
-                return
+            with self._draw_lock:
+                if not self._draw_done:
+                    write_all(client_sock, b"WAIT\n")
+                    return
 
-            _, agency = message.split("|", 1)
-            agency = self._normalize_agency(agency)
-            winners = self._winners_by_agency.get(agency, [])
-            response = "WINNERS\n" if not winners else "WINNERS|" + "|".join(winners) + "\n"
+                _, agency = message.split("|", 1)
+                agency = self._normalize_agency(agency)
+                winners = self._winners_by_agency.get(agency, [])
+                response = "WINNERS\n" if not winners else "WINNERS|" + "|".join(winners) + "\n"
+            
             write_all(client_sock, response.encode())
-
             logging.info(f"action: winners_request | result: success | agency: {agency} | winners_count: {len(winners)}")
         
         except Exception as e:
