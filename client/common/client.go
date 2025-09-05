@@ -74,32 +74,69 @@ func (c *Client) closeClientSocket() {
 	}
 }
 
-// sendBatchWithRetry sends a batch message with retries on failure
-func (client *Client) sendBatchWithRetry(batchMessage string) bool {
-	err := client.createClientSocket()
-	if err != nil {
-		log.Errorf("action: connect | result: fail | error: %v", err)
-		return false
-	}
-	defer client.closeClientSocket()
-
+// sendWithAckRetry sends a message and waits for an acknowledgment, retrying on failure, 
+// logging each attempt
+func (c *Client) sendWithAckRetry(msg string, context string) bool {
 	for attempt := 1; attempt <= MaxRetries; attempt++ {
-		err = communication.SendMessage(client.conn, batchMessage)
+		err := communication.SendMessage(c.conn, msg)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | attempt: %d | error: %v", attempt, err)
 			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
 
-		err = communication.ReceiveAck(client.conn)
+		err = communication.ReceiveAck(c.conn)
 		if err != nil {
 			log.Errorf("action: receive_ack | result: fail | attempt: %d | error: %v", attempt, err)
 			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
+
+		log.Infof("action: send_message | result: success")
 		return true
 	}
+	log.Errorf("action: send_message | result: fail")
 	return false
+}
+
+// sendAndReadUntilPrefix sends a message and reads the response until it matches the expected prefix, retrying on failure
+func (c *Client) sendAndReadUntilPrefix(msg string, expectedPrefix string, context string) (string, bool) {
+	for attempt := 1; attempt <= MaxRetries; attempt++ {
+		err := communication.SendMessage(c.conn, msg)
+		if err != nil {
+			log.Errorf("action: send_message | result: fail | attempt: %d | error: %v", attempt, err)
+			time.Sleep(RetryIOErrorDelay)
+			continue
+		}
+
+		resp, err := communication.ReadMessage(c.conn)
+		if err != nil {
+			log.Errorf("action: read_response | result: fail | attempt: %d | error: %v", attempt, err)
+			time.Sleep(RetryIOErrorDelay)
+			continue
+		}
+
+		resp = strings.TrimSpace(resp)
+		if resp == "WAIT" {
+			log.Infof("action: read_response | result: wait")
+			time.Sleep(RetryIOErrorDelay)
+			continue
+		}
+
+		if strings.HasPrefix(resp, expectedPrefix) {
+			log.Infof("action: read_response | result: success")
+			return resp, true
+		}
+
+		time.Sleep(RetryIOErrorDelay)
+	}
+	log.Errorf("action: read_response | result: fail")
+	return "", false
+}
+
+// sendBatchWithRetry sends a batch message with retries on failure
+func (c *Client) sendBatchWithRetry(batchMessage string) bool {
+	return c.sendWithAckRetry(batchMessage, "batch")
 }
 
 // sendBatchesFromParser reads batches from the parser and sends them, logging the results
@@ -135,85 +172,21 @@ func (c *Client) sendBatchesFromParser(parser *bet.Parser) {
 // notifyEndOfBets notifica el final de las apuestas al servidor
 func (c *Client) notifyEndOfBets() bool {
 	msg := fmt.Sprintf("FIN|%s\n", c.config.ID)
-
-	for attempt := 1; attempt <= MaxRetries; attempt++ {
-
-		err := c.createClientSocket()
-		if err != nil {
-			log.Errorf("action: connect | result: fail | error: %v", err)
-			time.Sleep(RetryIOErrorDelay)
-			continue
-		}
-
-		err = communication.SendMessage(c.conn, msg)
-		if err != nil {
-			log.Errorf("action: notify_end | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			c.closeClientSocket()
-			time.Sleep(RetryIOErrorDelay)
-			continue
-		}
-
-		err = communication.ReceiveAck(c.conn)
-        c.closeClientSocket() // cierro después de recibir el ACK
-		if err != nil {
-             log.Errorf("action: receive_ack_notify_end | result: fail | attempt: %d | error: %v", attempt, err)
-             time.Sleep(RetryIOErrorDelay)
-             continue
-        }
-		
-		log.Infof("action: notify_end | result: success | client_id: %v", c.config.ID)
-		return true
-	}
-
-	log.Errorf("action: notify_end | result: fail | client_id: %v", c.config.ID)
-    return false
+	return c.sendWithAckRetry(msg, "fin")
 }
 
 // requestWinners solicita los ganadores al servidor, reintentando en caso de fallo
 func (c *Client) requestWinners() {
+	req := fmt.Sprintf("WINNERS|%s\n", c.config.ID)
+	resp, ok := c.sendAndReadUntilPrefix(req, "WINNERS", "winners")
 
-	for {
-		err := c.createClientSocket()
-		if err != nil {
-			log.Errorf("action: connect | result: fail | step: request_winners | error: %v", err)
-			time.Sleep(RetryIOErrorDelay)
-			continue
-		}
-
-		req := fmt.Sprintf("WINNERS|%s\n", c.config.ID)
-		err = communication.SendMessage(c.conn, req)
-		if err != nil {
-			log.Errorf("action: send_winners_request | result: fail | error: %v", err)
-			c.closeClientSocket()
-			time.Sleep(RetryIOErrorDelay)
-			continue
-		}
-
-		resp, err := communication.ReadMessage(c.conn)
-		c.closeClientSocket()
-		if err != nil {
-			log.Errorf("action: read_winners_response | result: fail | error: %v", err)
-			time.Sleep(RetryIOErrorDelay)
-			continue
-		}
-
-		resp = strings.TrimSpace(resp)
-		if resp == "WAIT\n" {
-			log.Infof("action: consulta_ganadores | result: in_progress | client_id: %v", c.config.ID)
-			time.Sleep(RetryIOErrorDelay)
-			continue
-		}
-
-		if !strings.HasPrefix(resp, "WINNERS") {
-            log.Infof("action: consulta_ganadores | result: in_progress | client_id: %v", c.config.ID)
-            time.Sleep(RetryIOErrorDelay)
-            continue
-        }
-
-		dnis := bet.ParseWinnerResponse(resp)
-		log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", len(dnis))
+	if !ok {
+		log.Errorf("action: consulta_ganadores | result: fail | client_id: %v", c.config.ID)
 		return
 	}
+
+	dnis := bet.ParseWinnerResponse(resp)
+	log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", len(dnis))
 }
 
 // StartClientLoop Send messages to the client until some time threshold is met
@@ -236,6 +209,13 @@ func (c *Client) StartClientLoop() {
 
 	log.Infof("action: config | result: success | client_id: %v | server_address: %s | loop_amount: %d | loop_period: %v | log_level: INFO",
 		c.config.ID, c.config.ServerAddress, c.config.LoopAmount, c.config.LoopPeriod)
+
+	err = c.createClientSocket()
+	if err != nil {
+		log.Criticalf("client | action:connect | result:fail | client_id:%s | error:%v", c.config.ID, err)
+		return
+	}
+	defer c.closeClientSocket()
 
 	select {
 	case <-signalsChannel:

@@ -67,7 +67,9 @@ class Server:
     def __handle_client_connection(self, client_sock):
         self._client_sockets.append(client_sock)
         try:
-            self._receive_message(client_sock)
+            while not self._shutdown:
+                if not self._receive_message(client_sock):
+                    break
         finally:
             try:
                 client_sock.close()
@@ -86,7 +88,7 @@ class Server:
                     break
                 data += chunk
             if not data:
-                return None
+                return False
 
             decoded_message = data.decode().strip()
             if not decoded_message:
@@ -106,6 +108,7 @@ class Server:
                 write_all(client_sock, b"ER\n")
             except:
                 pass
+        return True
 
     # __accept_new_connection acepta una nueva conexión entrante, devuelve el socket del cliente
     def __accept_new_connection(self):
@@ -128,10 +131,12 @@ class Server:
                 store_bets(bet_objects)
             logging.info(f"action: apuesta_recibida | result: success | cantidad: {len(bet_objects)}")
             write_all(client_sock, b"OK\n")
+            return True
 
         except Exception as e:
             logging.info(f"action: apuesta_recibida | result: fail | error: {e}")
             write_all(client_sock, b"ER\n")
+            return True
 
     # _normalize_agency normaliza el identificador de la agencia dejando solo dígitos. EJ: "agencia-01" -> "01", "client1" -> "1"
     def _normalize_agency(self, raw):
@@ -146,14 +151,15 @@ class Server:
             with self._draw_lock:
                 self._finished_clients += 1
                 logging.info(f"action: end_of_bets | result: success | agency: {agency}")
-                write_all(client_sock, b"OK\n")
+                if self._finished_clients == self._expected_clients and not self._draw_done:
+                    self._perform_draw()
+            write_all(client_sock, b"OK\n")    
+            return True
 
-            if self._finished_clients == self._expected_clients and not self._draw_done:
-                self._perform_draw()
-                
         except Exception as e:
             logging.error(f"action: handle_end_notification | result: fail | error: {e}")
             write_all(client_sock, b"ER\n")
+            return True
 
     # _perform_draw realiza el sorteo, determina los ganadores y los agrupa por agencia
     def _perform_draw(self):
@@ -174,7 +180,7 @@ class Server:
             with self._draw_lock:
                 if not self._draw_done:
                     write_all(client_sock, b"WAIT\n")
-                    return
+                    return True
 
                 _, agency = message.split("|", 1)
                 agency = self._normalize_agency(agency)
@@ -183,8 +189,10 @@ class Server:
             
             write_all(client_sock, response.encode())
             logging.info(f"action: winners_request | result: success | agency: {agency} | winners_count: {len(winners)}")
+            return True
         
         except Exception as e:
             logging.error(f"action: winners_request | result: fail | error: {e}")
             write_all(client_sock, b"ER\n")
+            return True
 
