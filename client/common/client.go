@@ -118,7 +118,7 @@ func (c *Client) sendAndReadUntilPrefix(msg string, expectedPrefix string, conte
 
 		resp = strings.TrimSpace(resp)
 		if resp == "WAIT" {
-			log.Infof("action: read_response | result: wait")
+			log.Infof("action: read_response | result: in_progress")
 			time.Sleep(RetryIOErrorDelay)
 			continue
 		}
